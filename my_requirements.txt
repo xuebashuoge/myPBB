@@ -1,0 +1,5 @@
+tqdm
+torchvision
+torch
+numpy
+ninja
