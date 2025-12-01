@@ -9,7 +9,7 @@ import torch.distributions as td
 from torchvision import datasets, transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm, trange
-from pbb.models import NNet4l, CNNet4l, ProbNNet4l, ProbCNNet4l, ProbCNNet9l, CNNet9l, CNNet13l, ProbCNNet13l, ProbCNNet15l, CNNet15l, trainNNet, testNNet, Lambda_var, trainPNNet, computeRiskCertificates, testPosteriorMean, testStochastic, testEnsemble
+from pbb.models import NNet4l, CNNet4l, ProbNNet4l, ProbCNNet4l, ProbCNNet9l, CNNet9l, CNNet13l, ProbCNNet13l, ProbCNNet15l, CNNet15l, trainNNet, testNNet, Lambda_var, trainPNNet, computeRiskCertificates, testPosteriorMean, testStochastic, testEnsemble, select_channel_network, select_network, select_prior_network
 from pbb.bounds import PBBobj
 from pbb import data
 
@@ -144,23 +144,7 @@ perc_prior=0.2, batch_size=250):
     if prior_type == 'rand':
         dropout_prob = 0.0
 
-    # initialise model
-    if model == 'cnn':
-        if name_data == 'cifar10':
-            # only cnn models are tested for cifar10, fcns are only used 
-            # with mnist
-            if layers == 9:
-                net0 = CNNet9l(dropout_prob=dropout_prob).to(device)
-            elif layers == 13:
-                net0 = CNNet13l(dropout_prob=dropout_prob).to(device)
-            elif layers == 15:
-                net0 = CNNet15l(dropout_prob=dropout_prob).to(device)
-            else: 
-                raise RuntimeError(f'Wrong number of layers {layers}')
-        else:
-            net0 = CNNet4l(dropout_prob=dropout_prob).to(device)
-    else:
-        net0 = NNet4l(dropout_prob=dropout_prob, device=device).to(device)
+    net0 = select_prior_network(model, layers, name_data, dropout_prob, device=device)
 
     if prior_type == 'rand':
         train_loader, test_loader, _, val_bound_one_batch, _, val_bound = data.loadbatches(
@@ -172,42 +156,18 @@ perc_prior=0.2, batch_size=250):
         optimizer = optim.SGD(
             net0.parameters(), lr=learning_rate_prior, momentum=momentum_prior)
         for epoch in trange(prior_epochs):
-            trainNNet(net0, optimizer, epoch, valid_loader,
-                      device=device, verbose=verbose)
+            trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
         errornet0 = testNNet(net0, test_loader, device=device)
 
     posterior_n_size = len(train_loader.dataset)
     bound_n_size = len(val_bound.dataset)
 
-    toolarge = False
+    toolarge = True if model == 'cnn' else False
     train_size = len(train_loader.dataset)
     classes = len(train_loader.dataset.classes)
 
-    if model == 'cnn':
-        toolarge = True
-        if name_data == 'cifar10':
-            if layers == 9:
-                net = ProbCNNet9l(rho_prior, prior_dist=prior_dist,
-                                    device=device, init_net=net0).to(device)
-            elif layers == 13:
-                net = ProbCNNet13l(rho_prior, prior_dist=prior_dist,
-                                   device=device, init_net=net0).to(device)
-            elif layers == 15: 
-                net = ProbCNNet15l(rho_prior, prior_dist=prior_dist,
-                                   device=device, init_net=net0).to(device)
-            else: 
-                raise RuntimeError(f'Wrong number of layers {layers}')
-        else:
-            net = ProbCNNet4l(rho_prior, prior_dist=prior_dist,
-                          device=device, init_net=net0).to(device)
-    elif model == 'fcn':
-        if name_data == 'cifar10':
-            raise RuntimeError(f'Cifar10 not supported with given architecture {model}')
-        elif name_data == 'mnist':
-            net = ProbNNet4l(rho_prior, prior_dist=prior_dist,
-                        device=device, init_net=net0).to(device)
-    else:
-        raise RuntimeError(f'Architecture {model} not supported')
+    net = select_network(model, layers, name_data, sigma_prior, prior_dist, device=device, init_net=net0)
+    
     # import ipdb
     # ipdb.set_trace()
     bound = PBBobj(objective, pmin, classes, delta,
