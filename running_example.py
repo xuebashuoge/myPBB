@@ -2,7 +2,6 @@ import torch
 from pbb.utils import runexp
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("mps")
 print(torch.cuda.is_available())
 
 BATCH_SIZE = 250
@@ -13,6 +12,7 @@ PRIOR = 'learnt'
 
 SIGMAPRIOR = 0.03
 PMIN = 1e-5
+CLAMPING = True
 KL_PENALTY = 0.1
 LEARNING_RATE = 0.001
 MOMENTUM = 0.95
@@ -23,12 +23,10 @@ MOMENTUM_PRIOR = 0.99
 MC_SAMPLES = 150
 
 # note all of these running examples have different settings!
-runexp('mnist', 'vanilla', PRIOR, 'fcn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=4, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, perc_train=1.0, verbose=True, dropout_prob=0.2)
+runexp('mnist', 'vanilla', PRIOR, 'fcn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=4, clamping=CLAMPING, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, perc_train=1.0, perc_prior=0.5, verbose=True, dropout_prob=0.2)
 
-runexp('mnist', 'flamb', PRIOR, 'fcn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=4, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, prior_epochs=70, perc_train=1.0, perc_prior=0.5, verbose=True, dropout_prob=0.2)
+runexp('mnist', 'vanilla', PRIOR, 'cnn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=4, clamping=CLAMPING, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, prior_epochs=70, perc_train=1.0, perc_prior=0.5, verbose=True, dropout_prob=0.2)
 
-runexp('mnist', 'fclassic', PRIOR, 'cnn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=4, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, prior_epochs=70, perc_train=1.0, perc_prior=0.5, verbose=False, dropout_prob=0.2)
-
-runexp('cifar10', 'bbb', PRIOR, 'cnn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=9, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, prior_epochs=70, perc_train=1.0, perc_prior=0.5, verbose=False, dropout_prob=0.2, kl_penalty=0.1)
+runexp('cifar10', 'vanilla', PRIOR, 'cnn', SIGMAPRIOR, PMIN, LEARNING_RATE, MOMENTUM, LEARNING_RATE_PRIOR, MOMENTUM_PRIOR, delta=DELTA, layers=9, clamping=CLAMPING, delta_test=DELTA_TEST, mc_samples=MC_SAMPLES, train_epochs=TRAIN_EPOCHS, device=DEVICE, prior_epochs=70, perc_train=1.0, perc_prior=0.5, verbose=True, dropout_prob=0.2, kl_penalty=0.1)
 
 

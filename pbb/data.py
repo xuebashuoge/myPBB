@@ -40,7 +40,7 @@ def loaddataset(name):
     return train, test
 
 
-def loadbatches(train, test, loader_kargs, batch_size, prior=False, perc_train=1.0, perc_prior=0.2):
+def loadbatches(train, test, loader_kargs, batch_size, prior=False, perc_train=1.0, perc_prior=0.2, seed=7):
     """Function to load the batches for the dataset
 
     Parameters
@@ -74,8 +74,7 @@ def loadbatches(train, test, loader_kargs, batch_size, prior=False, perc_train=1
     if prior == False:
         indices = list(range(ntrain))
         split = int(np.round((perc_train)*ntrain))
-        # random_seed = 10
-        # np.random.seed(random_seed)
+        np.random.seed(seed)
         np.random.shuffle(indices)
 
         train_idx = indices[:split]
@@ -97,8 +96,7 @@ def loadbatches(train, test, loader_kargs, batch_size, prior=False, perc_train=1
         new_num_train = int(np.round((perc_train)*ntrain))
         indices = list(range(new_num_train))
         split = int(np.round((perc_prior)*new_num_train))
-        random_seed = 10
-        np.random.seed(random_seed)
+        np.random.seed(seed)
         np.random.shuffle(indices)
 
         all_train_sampler = SubsetRandomSampler(indices)

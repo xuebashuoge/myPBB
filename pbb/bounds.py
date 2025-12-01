@@ -65,13 +65,10 @@ class PBBobj():
     def compute_losses(self, net, data, target, clamping=True):
         # compute both cross entropy and 01 loss
         # returns outputs of the network as well
-        outputs = net(data, sample=True,
-                      clamping=clamping, pmin=self.pmin)
-        loss_ce = self.compute_empirical_risk(
-            outputs, target, clamping)
+        outputs = net(data, sample=True, clamping=clamping, pmin=self.pmin)
+        loss_ce = self.compute_empirical_risk(outputs, target, clamping)
         pred = outputs.max(1, keepdim=True)[1]
-        correct = pred.eq(
-            target.view_as(pred)).sum().item()
+        correct = pred.eq(target.view_as(pred)).sum().item()
         total = target.size(0)
         loss_01 = 1-(correct/total)
         return loss_ce, loss_01, outputs
@@ -119,8 +116,7 @@ class PBBobj():
                 cross_entropy_mc = 0.0
                 error_mc = 0.0
                 for i in range(self.mc_samples):
-                    loss_ce, loss_01, _ = self.compute_losses(net,
-                                                              data_batch, target_batch, clamping)
+                    loss_ce, loss_01, _ = self.compute_losses(net,  data_batch, target_batch, clamping)
                     cross_entropy_mc += loss_ce
                     error_mc += loss_01
                 # we average cross-entropy and 0-1 error over all MC samples
@@ -133,8 +129,7 @@ class PBBobj():
             cross_entropy_mc = 0.0
             error_mc = 0.0
             for i in range(self.mc_samples):
-                loss_ce, loss_01, _ = self.compute_losses(net,
-                                                          input, target, clamping)
+                loss_ce, loss_01, _ = self.compute_losses(net,          input, target, clamping)
                 cross_entropy_mc += loss_ce
                 error_mc += loss_01
                 # we average cross-entropy and 0-1 error over all MC samples
@@ -146,8 +141,7 @@ class PBBobj():
         # compute train objective and return all metrics
         outputs = torch.zeros(target.size(0), self.classes).to(self.device)
         kl = net.compute_kl()
-        loss_ce, loss_01, outputs = self.compute_losses(net,
-                                                        input, target, clamping)
+        loss_ce, loss_01, outputs = self.compute_losses(net,        input, target, clamping)
 
         train_obj = self.bound(loss_ce, kl, self.n_posterior, lambda_var)
         return train_obj, kl/self.n_posterior, outputs, loss_ce, loss_01
@@ -157,11 +151,9 @@ class PBBobj():
 
         kl = net.compute_kl()
         if data_loader:
-            error_ce, error_01 = self.mcsampling(net, input, target, batches=True,
-                                                 clamping=True, data_loader=data_loader)
+            error_ce, error_01 = self.mcsampling(net, input, target, batches=True, clamping=clamping, data_loader=data_loader)
         else:
-            error_ce, error_01 = self.mcsampling(net, input, target, batches=False,
-                                                 clamping=True)
+            error_ce, error_01 = self.mcsampling(net, input, target, batches=False, clamping=clamping)
 
         empirical_risk_ce = inv_kl(
             error_ce.item(), np.log(2/self.delta_test)/self.mc_samples)
@@ -170,11 +162,9 @@ class PBBobj():
 
         train_obj = self.bound(empirical_risk_ce, kl, self.n_posterior, lambda_var)
 
-        risk_ce = inv_kl(empirical_risk_ce, (kl + np.log((2 *
-                                                             np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
-        risk_01 = inv_kl(empirical_risk_01, (kl + np.log((2 *
-                                                             np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
-        return train_obj.item(), kl.item()/self.n_bound, empirical_risk_ce, empirical_risk_01, risk_ce, risk_01
+        risk_ce = inv_kl(empirical_risk_ce, (kl + np.log((2 * np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
+        risk_01 = inv_kl(empirical_risk_01, (kl + np.log((2 * np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
+        return train_obj, kl.item()/self.n_bound, empirical_risk_ce, empirical_risk_01, risk_ce, risk_01
 
 
 def inv_kl(qs, ks):

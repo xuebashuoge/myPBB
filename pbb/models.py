@@ -1602,7 +1602,7 @@ def trainNNet(net, optimizer, epoch, train_loader, device='cuda', verbose=False)
     # train and report training metrics
     net.train()
     total, correct, avgloss = 0.0, 0.0, 0.0
-    for batch_id, (data, target) in enumerate(tqdm(train_loader)):
+    for data, target in tqdm(train_loader):
         data, target = data.to(device), target.to(device)
         net.zero_grad()
         output = net(data)
@@ -1615,8 +1615,9 @@ def trainNNet(net, optimizer, epoch, train_loader, device='cuda', verbose=False)
         avgloss = avgloss + loss.detach()
     # show the average loss and KL during the epoch
     if verbose:
-        print(
-            f"-Epoch {epoch :.5f}, Train loss: {avgloss/len(train_loader) :.5f}, Train err:  {1-(correct/total):.5f}")
+        print(f"-Epoch {epoch :.5f}, Train loss: {avgloss/len(train_loader) :.5f}, Train err:  {1-(correct/total):.5f}")
+    
+    return avgloss/len(train_loader), 1-(correct/total)
 
 
 def testNNet(net, test_loader, device='cuda', verbose=True):
@@ -1652,7 +1653,7 @@ def testNNet(net, test_loader, device='cuda', verbose=True):
     return 1-(correct/total)
 
 
-def trainPNNet(net, optimizer, pbobj, epoch, train_loader, lambda_var=None, optimizer_lambda=None, verbose=False):
+def trainPNNet(net, optimizer, pbobj, epoch, train_loader, clamping=True, lambda_var=None, optimizer_lambda=None, verbose=False):
     """Train function for a probabilistic NN (including CNN)
 
     Parameters
@@ -1694,14 +1695,10 @@ def trainPNNet(net, optimizer, pbobj, epoch, train_loader, lambda_var=None, opti
         # variables that keep information about the results of optimising lambda (only for flamb)
         avgerr_l, avgbound_l, avgkl_l, avgloss_l = 0.0, 0.0, 0.0, 0.0
 
-    if pbobj.objective == 'bbb':
-        clamping = False
-    else:
-        clamping = True
 
     kl_debug = []
 
-    for batch_id, (data, target) in enumerate(tqdm(train_loader)):
+    for data, target in tqdm(train_loader):
         data, target = data.to(pbobj.device), target.to(pbobj.device)
         net.zero_grad()
         bound, kl, _, loss, err = pbobj.train_obj(
@@ -1739,7 +1736,7 @@ def trainPNNet(net, optimizer, pbobj, epoch, train_loader, lambda_var=None, opti
     return avgbound/len(train_loader), avgkl/len(train_loader), avgloss/len(train_loader), avgerr/len(train_loader)
 
 
-def testStochastic(net, test_loader, pbobj, device='cuda'):
+def testStochastic(net, test_loader, pbobj, clamping=True, device='cuda'):
     """Test function for the stochastic predictor using a PNN
 
     Parameters
@@ -1762,13 +1759,13 @@ def testStochastic(net, test_loader, pbobj, device='cuda'):
     correct, cross_entropy, total = 0, 0.0, 0.0
     outputs = torch.zeros(test_loader.batch_size, pbobj.classes).to(device)
     with torch.no_grad():
-        for batch_id, (data, target) in enumerate(tqdm(test_loader)):
+        for data, target in tqdm(test_loader):
             data, target = data.to(device), target.to(device)
             for i in range(len(data)):
                 outputs[i, :] = net(data[i:i+1], sample=True,
-                                    clamping=True, pmin=pbobj.pmin)
+                                    clamping=clamping, pmin=pbobj.pmin)
             cross_entropy += pbobj.compute_empirical_risk(
-                outputs, target, bounded=True)
+                outputs, target, bounded=clamping)
             pred = outputs.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
@@ -1776,7 +1773,7 @@ def testStochastic(net, test_loader, pbobj, device='cuda'):
     return cross_entropy/len(test_loader), 1-(correct/total)
 
 
-def testPosteriorMean(net, test_loader, pbobj, device='cuda'):
+def testPosteriorMean(net, test_loader, pbobj, clamping=True, device='cuda'):
     """Test function for the deterministic predictor using a PNN
     (uses the posterior mean)
 
@@ -1800,9 +1797,9 @@ def testPosteriorMean(net, test_loader, pbobj, device='cuda'):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            outputs = net(data, sample=False, clamping=True, pmin=pbobj.pmin)
+            outputs = net(data, sample=False, clamping=clamping, pmin=pbobj.pmin)
             cross_entropy = pbobj.compute_empirical_risk(
-                outputs, target, bounded=True)
+                outputs, target, bounded=clamping)
             pred = outputs.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
@@ -1810,7 +1807,7 @@ def testPosteriorMean(net, test_loader, pbobj, device='cuda'):
     return cross_entropy, 1-(correct/total)
 
 
-def testEnsemble(net, test_loader, pbobj, device='cuda', samples=100):
+def testEnsemble(net, test_loader, pbobj, clamping=True, device='cuda', samples=100):
     """Test function for the ensemble predictor using a PNN
 
     Parameters
@@ -1834,22 +1831,68 @@ def testEnsemble(net, test_loader, pbobj, device='cuda', samples=100):
     net.eval()
     correct, cross_entropy, total = 0, 0.0, 0.0
     with torch.no_grad():
-        for batch_id, (data, target) in enumerate(tqdm(test_loader)):
+        for data, target in tqdm(test_loader):
             data, target = data.to(device), target.to(device)
             outputs = torch.zeros(samples, test_loader.batch_size, pbobj.classes).to(device)
             for i in range(samples):
-                outputs[i] = net(data, sample=True, clamping=True, pmin=pbobj.pmin)
+                outputs[i] = net(data, sample=True, clamping=clamping, pmin=pbobj.pmin)
             avgoutput = outputs.mean(0)
             cross_entropy = pbobj.compute_empirical_risk(
-                avgoutput, target, bounded=True)
+                avgoutput, target, bounded=clamping)
             pred = avgoutput.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
 
     return cross_entropy/len(test_loader), 1-(correct/total)
 
+def computeChannelRiskCertificates(net, channel_type, outage, tx_power, noise_var, pbobj, clamping=True, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
+    """Function to compute risk certificates and other statistics at the end of training
+    for networks with wireless channel layers
 
-def computeRiskCertificates(net, toolarge, pbobj, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
+    Parameters
+    ----------
+    net : PNNet/PCNNet object
+        Network object to test
+
+    channel_type: string
+        Type of wireless channel used (e.g. 'bec', 'awgn')
+
+    outage: float
+        Outage probability for the wireless channel
+
+    tx_power: float
+        Transmit power for the wireless channel
+
+    noise_var: float
+        Noise variance for the wireless channel
+
+    pbobj : pbobj object
+        PAC-Bayes inspired training objective used during training
+
+    device : string
+        Device the code will run in (e.g. 'cuda')
+
+    lambda_var : Lambda_var object
+        Lambda variable for training objective flamb
+
+    train_loader: DataLoader object
+        Data loader for computing the risk certificate (multiple batches, used if toolarge=True)
+
+    whole_train: DataLoader object
+        Data loader for computing the risk certificate (one unique batch, used if toolarge=False)
+
+    """
+    net.eval()
+    with torch.no_grad():
+        # a bit hacky, we load the whole dataset to compute the bound
+        for data, target in whole_train:
+            data, target = data.to(device), target.to(device)
+            train_obj, kl, loss_ce_train, err_01_train, risk_ce, risk_01 = pbobj.compute_final_stats_channel_risk(
+                net, channel_type, outage, tx_power, noise_var, lambda_var=lambda_var, clamping=clamping, input=data, target=target)
+
+    return train_obj, risk_ce, risk_01, kl, loss_ce_train, err_01_train
+
+def computeRiskCertificates(net, toolarge, pbobj, clamping=True, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
     """Function to compute risk certificates and other statistics at the end of training
 
     Parameters
@@ -1880,18 +1923,62 @@ def computeRiskCertificates(net, toolarge, pbobj, device='cuda', lambda_var=None
     with torch.no_grad():
         if toolarge:
             train_obj, kl, loss_ce_train, err_01_train, risk_ce, risk_01 = pbobj.compute_final_stats_risk(
-                net, lambda_var=lambda_var, clamping=True, data_loader=train_loader)
+                net, lambda_var=lambda_var, clamping=clamping, data_loader=train_loader)
         else:
             # a bit hacky, we load the whole dataset to compute the bound
             for data, target in whole_train:
                 data, target = data.to(device), target.to(device)
                 train_obj, kl, loss_ce_train, err_01_train, risk_ce, risk_01 = pbobj.compute_final_stats_risk(
-                    net, lambda_var=lambda_var, clamping=True, input=data, target=target)
+                    net, lambda_var=lambda_var, clamping=clamping, input=data, target=target)
 
     return train_obj, risk_ce, risk_01, kl, loss_ce_train, err_01_train
 
 def select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
-    pass
+    """Function to select the appropriate probabilistic CNN architecture
+    based on the initial deterministic CNN provided.
+
+    Parameters
+    ----------
+    init_net : CNNet/CNNet15l object
+        Initial deterministic network used to initialise the prior
+
+    rho_prior : float
+        prior scale hyperparmeter (to initialise the scale of
+        the posterior)
+
+    prior_dist : string
+        string that indicates the type of distribution for the
+        prior and posterior
+
+    device : string
+        Device the code will run in (e.g. 'cuda')
+
+    """
+    rho_prior = math.log(math.exp(sigma_prior)-1.0)
+    if model.lower() == 'cnn':
+        if name_data.lower() == 'cifar10':
+            if layers == 9:
+                net = ProbCNNet9lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+            elif layers == 13:
+                net = ProbCNNet13lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+            elif layers == 15:
+                net = ProbCNNet15lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+            else:
+                raise RuntimeError(f'Wrong number of layers chosen {layers}')
+        else:
+            if layers == 4:
+                net = ProbCNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+            else:
+                raise RuntimeError(f'Wrong number of layers chosen {layers}')
+    elif model.lower() == 'fcn':
+        if layers == 4:
+            net = ProbNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+        else:
+            raise RuntimeError(f'Wrong number of layers chosen {layers}')
+    else:
+        raise RuntimeError(f'Wrong model chosen {model}-{layers}')
+
+    return net
 
 def select_network(model, layers, name_data, sigma_prior, prior_dist, device='cuda', init_net=None):
     """Function to select the appropriate probabilistic CNN architecture
