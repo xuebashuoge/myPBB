@@ -1067,8 +1067,12 @@ class WirelessChannel(nn.Module):
         
     def forward(self, input, wireless=False, scalar_gain=True, return_weight=False):
         if self.channel_type == 'bec':
-            weight = self.weight.sample(input.shape) if wireless else torch.ones(input.shape).to(self.device)
-            output = weight * input
+            if wireless:
+                weight = self.weight.sample(input.shape)
+                output = weight * input
+            else:
+                output = input
+                weight = None
 
             return (output, (weight, None)) if return_weight else output
         elif self.channel_type == 'rayleigh':
@@ -1099,10 +1103,14 @@ class WirelessChannel(nn.Module):
             else:
                 dim = signal.shape
 
-            weight = self.weight.sample(dim) if wireless else torch.ones(dim).to(self.device)
-            bias = self.bias.sample(dim) if wireless else torch.zeros(dim).to(self.device)
-
-            y = weight * signal + bias
+            if wireless:
+                weight = self.weight.sample(dim)
+                bias = self.bias.sample(dim)
+                y = weight * signal + bias
+            else:
+                weight = None
+                bias = None
+                y = signal
 
             # recombine real and imaginary parts
             output_flat = torch.cat((y.real, y.imag), dim=-1)

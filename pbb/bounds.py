@@ -139,9 +139,8 @@ class PBBobj():
 
     def train_obj(self, net, input, target, clamping=True, lambda_var=None):
         # compute train objective and return all metrics
-        outputs = torch.zeros(target.size(0), self.classes).to(self.device)
         kl = net.compute_kl()
-        loss_ce, loss_01, outputs = self.compute_losses(net,        input, target, clamping)
+        loss_ce, loss_01, outputs = self.compute_losses(net, input, target, clamping)
 
         train_obj = self.bound(loss_ce, kl, self.n_posterior, lambda_var)
         return train_obj, kl/self.n_posterior, outputs, loss_ce, loss_01
