@@ -164,7 +164,11 @@ class PBBobj():
 
         risk_ce = inv_kl(empirical_risk_ce, (kl + np.log((2 * np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
         risk_01 = inv_kl(empirical_risk_01, (kl + np.log((2 * np.sqrt(self.n_bound))/self.delta_test))/self.n_bound)
-        return train_obj, kl.item()/self.n_bound, empirical_risk_ce, empirical_risk_01, risk_ce, risk_01
+
+        if torch.is_tensor(kl):
+            kl = kl.item()
+
+        return train_obj, kl/self.n_bound, empirical_risk_ce, empirical_risk_01, risk_ce, risk_01
 
 
 def inv_kl(qs, ks):

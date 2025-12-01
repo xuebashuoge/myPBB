@@ -131,9 +131,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     g.manual_seed(seed)
 
     def seed_worker(worker_id):
+        import random as py_random
         worker_seed = torch.initial_seed() % 2**32
         np.random.seed(worker_seed)
-        random.seed(worker_seed)
+        py_random.seed(worker_seed)
 
     loader_kargs = {'num_workers': 1,
                     'pin_memory': True} if torch.cuda.is_available() else {}
@@ -175,17 +176,17 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
             optimizer = optim.SGD(
                 net0.parameters(), lr=learning_rate_prior, momentum=momentum_prior)
             
-            loss_pri_tr = torch.zeros(prior_epochs)
-            error_pri_tr = torch.zeros(prior_epochs)
+            loss_pri_tr = []
+            error_pri_tr = []
             for epoch in trange(prior_epochs):
                 avgloss_pri, avgerr_pri = trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
-                loss_pri_tr[epoch] = avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri
-                error_pri_tr[epoch] = avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri
+                loss_pri_tr.append(avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri)
+                error_pri_tr.append(avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri)
         # test for prior network
         # Optimization: Clean cache
-        if device == 'cuda':
+        if device.type == 'cuda':
             torch.cuda.empty_cache()
-        elif device == 'mps':
+        elif device.type == 'mps':
             torch.mps.empty_cache()
 
         with torch.no_grad():
@@ -223,21 +224,28 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     classes = len(train_loader.dataset.classes)
 
     net = select_network(model, layers, name_data, sigma_prior, prior_dist, device=device, init_net=net0)
-    net_channel = select_channel_network(channel_type, net, tx_power, noise_var, l_0, device=device, init_net=net0)
+    net_channel = select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_0, channel_type, tx_power, noise_var, device=device, init_net=net0)
 
     # This frees up GPU memory for the main training loop.
     net0 = net0.to('cpu')
     
     # Optimization: Clear memory
-    if device == 'cuda':
+    if device.type == 'cuda':
         torch.cuda.empty_cache()
-    elif device == 'mps':
+    elif device.type == 'mps':
         torch.mps.empty_cache()
     gc.collect()
 
     # import ipdb
     # ipdb.set_trace()
     bound = PBBobj(objective, pmin, classes, delta, delta_test, mc_samples, kl_penalty, device, n_posterior=posterior_n_size, n_bound=bound_n_size)
+
+    if objective == 'flamb':
+        lambda_var = Lambda_var(initial_lamb, train_size).to(device)
+        optimizer_lambda = optim.SGD(lambda_var.parameters(), lr=learning_rate, momentum=momentum)
+    else:
+        optimizer_lambda = None
+        lambda_var = None
 
     if os.path.exists(f'{posterior_folder}/posterior_model.pt'):
         net.load_state_dict(torch.load(f'{posterior_folder}/posterior_model.pt', map_location=device))
@@ -249,25 +257,20 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         print("Training posterior model from scratch.")
 
 
-        if objective == 'flamb':
-            lambda_var = Lambda_var(initial_lamb, train_size).to(device)
-            optimizer_lambda = optim.SGD(lambda_var.parameters(), lr=learning_rate, momentum=momentum)
-        else:
-            optimizer_lambda = None
-            lambda_var = None
+        
 
         optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
 
-        loss_tr = torch.zeros(train_epochs)
-        err_tr = torch.zeros(train_epochs)
-        kl_tr = torch.zeros(train_epochs)
+        loss_tr = []
+        err_tr = []
+        kl_tr = []
 
         for epoch in trange(train_epochs):
             avgbound, avgkl, avgloss, avgerr = trainPNNet(net, optimizer, bound, epoch, train_loader, clamping, lambda_var, optimizer_lambda, verbose)
             # records train results
-            loss_tr[epoch] = avgloss.item() if torch.is_tensor(avgloss) else avgloss
-            err_tr[epoch] = avgerr.item() if torch.is_tensor(avgerr) else avgerr
-            kl_tr[epoch] = avgkl.detach().item() if torch.is_tensor(avgkl) else avgkl
+            loss_tr.append(avgloss.item() if torch.is_tensor(avgloss) else avgloss)
+            err_tr.append(avgerr.item() if torch.is_tensor(avgerr) else avgerr)
+            kl_tr.append(avgkl.detach().item() if torch.is_tensor(avgkl) else avgkl)
 
             if verbose_test and ((epoch+1) % 5 == 0):
                 with torch.no_grad():
@@ -310,9 +313,9 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         plt.close('all')
 
     # Optimization: Final cleanup before potentially heavy certificate computation
-    if device == 'cuda':
+    if device.type == 'cuda':
         torch.cuda.empty_cache()
-    elif device == 'mps':
+    elif device.type == 'mps':
         torch.mps.empty_cache()
     gc.collect()
 
@@ -329,14 +332,14 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
     # load trained posterior model for certificates
-    net_channel.load(state_dict=net.state_dict())
+    net_channel.load_state_dict(state_dict=net.state_dict())
 
     with torch.no_grad():
         train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
-        stch_loss, stch_err = testStochastic(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-        post_loss, post_err = testPosteriorMean(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-        ens_loss, ens_err = testEnsemble(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
+        stch_loss, stch_err = testStochastic(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+        post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+        ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
 
     certificate_results = {
         'risk_certificate_ce': risk_ce,
@@ -350,7 +353,6 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'posterior_mean_01_error': post_err,
         'ensemble_loss': ens_loss,
         'ensemble_01_error': ens_err,
-        'prior_01_error': errornet0,
     }
 
     with open(certificate_file, 'w') as f:

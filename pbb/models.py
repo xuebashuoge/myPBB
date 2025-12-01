@@ -1051,7 +1051,7 @@ class WirelessChannel(nn.Module):
     
     """
 
-    def __init__(self, channel_type='bec', outage=0.1, tx_pow=1.0, noise_var=1, device='cuda'):
+    def __init__(self, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1, device='cuda'):
         super().__init__()
         self.channel_type = channel_type.lower()
         self.device = device
@@ -1060,7 +1060,7 @@ class WirelessChannel(nn.Module):
             self.weight = Bernoulli(outage, device=device)
             self.bias = None
         elif self.channel_type == 'rayleigh':
-            self.weight =ComplexNormal(tx_pow, device=device)
+            self.weight =ComplexNormal(tx_power, device=device)
             self.bias = ComplexNormal(noise_var, device=device)
         else:
             raise RuntimeError(f'Wrong channel type {channel_type}')
@@ -1113,14 +1113,14 @@ class WirelessChannel(nn.Module):
 
 
 class ProbNNet4lChannel(nn.Module):
-    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
         super().__init__()
         self.device = device
         self.l_0 = l_0
         self.dimension = 0
 
         
-        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, noise_var=noise_var, device=device)
+        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device)
 
         self.l1 = ProbLinear(28*28, 600, rho_prior, prior_dist=prior_dist, device=device, init_layer=init_net.l1 if init_net else None)
         self.l2 = ProbLinear(600, 600, rho_prior, prior_dist=prior_dist, device=device, init_layer=init_net.l2 if init_net else None)
@@ -1167,14 +1167,14 @@ class ProbNNet4lChannel(nn.Module):
         return kl
     
 class ProbCNNet4lChannel(nn.Module):
-    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
         super().__init__()
         self.device = device
         self.l_0 = l_0
         self.dimension = 0
 
         
-        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, noise_var=noise_var, device=device)
+        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device)
 
         self.conv1 = ProbConv2d(1, 32, 3, rho_prior, prior_dist=prior_dist, device=device, init_layer=init_net.conv1 if init_net else None)
         self.conv2 = ProbConv2d(32, 64, 3, rho_prior, prior_dist=prior_dist, device=device, init_layer=init_net.conv2 if init_net else None)
@@ -1235,14 +1235,14 @@ class ProbCNNet9lChannel(nn.Module):
         Type of channel ('bec' or 'rayleigh').
     ... (other parameters for WirelessChannel, Prob layers, etc.)
     """
-    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
         super().__init__()
         self.device = device
         self.l_0 = l_0
         self.dimension = 0
 
         
-        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, noise_var=noise_var, device=device)
+        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device)
         
         self.conv1 = ProbConv2d(in_channels=3, out_channels=32, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv1 if init_net else None)
         self.conv2 = ProbConv2d(in_channels=32, out_channels=64, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv2 if init_net else None)
@@ -1325,13 +1325,13 @@ class ProbCNNet9lChannel(nn.Module):
 
 
 class ProbCNNet13lChannel(nn.Module):
-    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
         super().__init__()
         self.device = device
         self.l_0 = l_0
         self.dimension = 0
 
-        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, noise_var=noise_var, device=device)
+        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device)
 
         self.conv1 = ProbConv2d(in_channels=3, out_channels=32, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv1 if init_net else None)
         self.conv2 = ProbConv2d(in_channels=32, out_channels=64, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv2 if init_net else None)
@@ -1434,14 +1434,14 @@ class ProbCNNet13lChannel(nn.Module):
 
 
 class ProbCNNet15lChannel(nn.Module):
-    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+    def __init__(self, rho_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
         super().__init__()
         self.device = device
         self.l_0 = l_0
         self.dimension = 0
 
         
-        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, noise_var=noise_var, device=device)
+        self.channel = WirelessChannel(channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device)
 
         self.conv1 = ProbConv2d( in_channels=3, out_channels=32, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv1 if init_net else None)
         self.conv2 = ProbConv2d( in_channels=32, out_channels=64, rho_prior=rho_prior, prior_dist=prior_dist, device=device, kernel_size=3, padding=1, init_layer=init_net.conv2 if init_net else None)
@@ -1963,7 +1963,7 @@ def computeRiskCertificates(net, toolarge, pbobj, clamping=True, device='cuda', 
 
     return train_obj, risk_ce, risk_01, kl, loss_ce_train, err_01_train
 
-def select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, noise_var=1, device='cuda', init_net=None):
+def select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_0=-1, channel_type='bec', outage=0.1, tx_power=1.0, noise_var=1.0, device='cuda', init_net=None):
     """Function to select the appropriate probabilistic CNN architecture
     based on the initial deterministic CNN provided.
 
@@ -1988,21 +1988,21 @@ def select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_
     if model.lower() == 'cnn':
         if name_data.lower() == 'cifar10':
             if layers == 9:
-                net = ProbCNNet9lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+                net = ProbCNNet9lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device, init_net=init_net).to(device)
             elif layers == 13:
-                net = ProbCNNet13lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+                net = ProbCNNet13lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device, init_net=init_net).to(device)
             elif layers == 15:
-                net = ProbCNNet15lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+                net = ProbCNNet15lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device, init_net=init_net).to(device)
             else:
                 raise RuntimeError(f'Wrong number of layers chosen {layers}')
         else:
             if layers == 4:
-                net = ProbCNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+                net = ProbCNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device, init_net=init_net).to(device)
             else:
                 raise RuntimeError(f'Wrong number of layers chosen {layers}')
     elif model.lower() == 'fcn':
         if layers == 4:
-            net = ProbNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, noise_var=noise_var, device=device, init_net=init_net).to(device)
+            net = ProbNNet4lChannel(rho_prior, prior_dist=prior_dist, l_0=l_0, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, device=device, init_net=init_net).to(device)
         else:
             raise RuntimeError(f'Wrong number of layers chosen {layers}')
     else:
