@@ -158,56 +158,62 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     os.makedirs(certificate_folder, exist_ok=True)
 
 
+    train_loader, test_loader, valid_loader, val_bound_one_batch, _, val_bound = data.loadbatches(train, test, loader_kargs, batch_size, prior=(prior_type == 'learnt'), perc_train=perc_train, perc_prior=perc_prior, seed=seed)
+
+
     net0 = select_prior_network(model, layers, name_data, dropout_prob, device=device)
 
-    if prior_type == 'rand':
-        train_loader, test_loader, _, val_bound_one_batch, _, val_bound = data.loadbatches(train, test, loader_kargs, batch_size, prior=False, perc_train=perc_train, perc_prior=perc_prior, seed=seed)
+    if os.path.exists(f'{prior_folder}/prior_model.pt'):
+        net0.load_state_dict(torch.load(f'{prior_folder}/prior_model.pt', map_location=device))
+        with open(f'{prior_folder}/prior_results.json', 'r') as f:
+            result_prior = json.load(f)
+        print(f"Loaded prior model from file: {prior_folder}/prior_model.pt")
+        print(f"Prior train loss: {result_prior['train_loss'][-1]}, train error: {result_prior['train_error'][-1]}, test error: {result_prior['test_error']}")
+    else:
+        print("Training prior model from scratch.")
+        if prior_type == 'learnt':
+            optimizer = optim.SGD(
+                net0.parameters(), lr=learning_rate_prior, momentum=momentum_prior)
+            
+            loss_pri_tr = torch.zeros(prior_epochs)
+            error_pri_tr = torch.zeros(prior_epochs)
+            for epoch in trange(prior_epochs):
+                avgloss_pri, avgerr_pri = trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
+                loss_pri_tr[epoch] = avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri
+                error_pri_tr[epoch] = avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri
+        # test for prior network
+        # Optimization: Clean cache
+        if device == 'cuda':
+            torch.cuda.empty_cache()
+        elif device == 'mps':
+            torch.mps.empty_cache()
 
-    elif prior_type == 'learnt':
-        train_loader, test_loader, valid_loader, val_bound_one_batch, _, val_bound = data.loadbatches(
-            train, test, loader_kargs, batch_size, prior=True, perc_train=perc_train, perc_prior=perc_prior, seed=seed)
-        optimizer = optim.SGD(
-            net0.parameters(), lr=learning_rate_prior, momentum=momentum_prior)
-        
-        loss_pri_tr = torch.zeros(prior_epochs)
-        error_pri_tr = torch.zeros(prior_epochs)
-        for epoch in trange(prior_epochs):
-            avgloss_pri, avgerr_pri = trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
-            loss_pri_tr[epoch] = avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri
-            error_pri_tr[epoch] = avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri
-    # test for prior network
-    # Optimization: Clean cache
-    if device == 'cuda':
-        torch.cuda.empty_cache()
-    elif device == 'mps':
-        torch.mps.empty_cache()
+        with torch.no_grad():
+            errornet0 = testNNet(net0, test_loader, device=device)
 
-    with torch.no_grad():
-        errornet0 = testNNet(net0, test_loader, device=device)
+        # save prior model and results in human readable format
+        torch.save(net0.state_dict(), f'{prior_folder}/prior_model.pt')
+        result_prior = {
+            'train_loss': loss_pri_tr,
+            'train_error': error_pri_tr,
+            'test_error': errornet0
+        }
+        with open(f'{prior_folder}/prior_results.json', 'w') as f:
+            json.dump(result_prior, f, indent=4, default=vars)
 
-    # save prior model and results in human readable format
-    torch.save(net0.state_dict(), f'{prior_folder}/prior_model.pt')
-    result_prior = {
-        'train_loss': loss_pri_tr,
-        'train_error': error_pri_tr,
-        'test_error': errornet0
-    }
-    with open(f'{prior_folder}/prior_results.json', 'w') as f:
-        json.dump(result_prior, f, indent=4, default=vars)
+        plt.figure()
+        plt.plot(range(1,prior_epochs+1), loss_pri_tr)
+        plt.xlabel('Epochs')
+        plt.ylabel('Prior NLL loss')
+        plt.savefig(f'{prior_folder}/prior_loss.pdf', dpi=300, bbox_inches='tight')
 
-    plt.figure()
-    plt.plot(range(1,prior_epochs+1), loss_pri_tr)
-    plt.xlabel('Epochs')
-    plt.ylabel('Prior NLL loss')
-    plt.savefig(f'{prior_folder}/prior_loss.pdf', dpi=300, bbox_inches='tight')
+        plt.figure()
+        plt.plot(range(1,prior_epochs+1), error_pri_tr)
+        plt.xlabel('Epochs')
+        plt.ylabel('Prior 0-1 error')
+        plt.savefig(f'{prior_folder}/prior_err.pdf', dpi=300, bbox_inches='tight')
 
-    plt.figure()
-    plt.plot(range(1,prior_epochs+1), error_pri_tr)
-    plt.xlabel('Epochs')
-    plt.ylabel('Prior 0-1 error')
-    plt.savefig(f'{prior_folder}/prior_err.pdf', dpi=300, bbox_inches='tight')
-
-    plt.close('all')
+        plt.close('all')
 
     posterior_n_size = len(train_loader.dataset)
     bound_n_size = len(val_bound.dataset)
@@ -231,68 +237,77 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
 
     # import ipdb
     # ipdb.set_trace()
-    bound = PBBobj(objective, pmin, classes, delta,
-                    delta_test, mc_samples, kl_penalty, device, n_posterior = posterior_n_size, n_bound=bound_n_size)
+    bound = PBBobj(objective, pmin, classes, delta, delta_test, mc_samples, kl_penalty, device, n_posterior=posterior_n_size, n_bound=bound_n_size)
 
-    if objective == 'flamb':
-        lambda_var = Lambda_var(initial_lamb, train_size).to(device)
-        optimizer_lambda = optim.SGD(lambda_var.parameters(), lr=learning_rate, momentum=momentum)
+    if os.path.exists(f'{posterior_folder}/posterior_model.pt'):
+        net.load_state_dict(torch.load(f'{posterior_folder}/posterior_model.pt', map_location=device))
+        with open(f'{posterior_folder}/posterior_results.json', 'r') as f:
+            result_posterior = json.load(f)
+        print(f"Loaded posterior model from file: {posterior_folder}/posterior_model.pt")
+        print(f"Posterior train loss: {result_posterior['train_loss'][-1]}, train error: {result_posterior['train_error'][-1]}, kl: {result_posterior['train_kl'][-1]}")
     else:
-        optimizer_lambda = None
-        lambda_var = None
+        print("Training posterior model from scratch.")
 
-    optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
 
-    loss_tr = torch.zeros(train_epochs)
-    err_tr = torch.zeros(train_epochs)
-    kl_tr = torch.zeros(train_epochs)
+        if objective == 'flamb':
+            lambda_var = Lambda_var(initial_lamb, train_size).to(device)
+            optimizer_lambda = optim.SGD(lambda_var.parameters(), lr=learning_rate, momentum=momentum)
+        else:
+            optimizer_lambda = None
+            lambda_var = None
 
-    for epoch in trange(train_epochs):
-        avgbound, avgkl, avgloss, avgerr = trainPNNet(net, optimizer, bound, epoch, train_loader, clamping, lambda_var, optimizer_lambda, verbose)
-        # records train results
-        loss_tr[epoch] = avgloss.item() if torch.is_tensor(avgloss) else avgloss
-        err_tr[epoch] = avgerr.item() if torch.is_tensor(avgerr) else avgerr
-        kl_tr[epoch] = avgkl.detach().item() if torch.is_tensor(avgkl) else avgkl
+        optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
 
-        if verbose_test and ((epoch+1) % 5 == 0):
-            with torch.no_grad():
-                train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge,
-                bound, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
+        loss_tr = torch.zeros(train_epochs)
+        err_tr = torch.zeros(train_epochs)
+        kl_tr = torch.zeros(train_epochs)
 
-                stch_loss, stch_err = testStochastic(net, test_loader, bound, device=device)
-                post_loss, post_err = testPosteriorMean(net, test_loader, bound, device=device)
-                ens_loss, ens_err = testEnsemble(net, test_loader, bound, device=device, samples=samples_ensemble)
+        for epoch in trange(train_epochs):
+            avgbound, avgkl, avgloss, avgerr = trainPNNet(net, optimizer, bound, epoch, train_loader, clamping, lambda_var, optimizer_lambda, verbose)
+            # records train results
+            loss_tr[epoch] = avgloss.item() if torch.is_tensor(avgloss) else avgloss
+            err_tr[epoch] = avgerr.item() if torch.is_tensor(avgerr) else avgerr
+            kl_tr[epoch] = avgkl.detach().item() if torch.is_tensor(avgkl) else avgkl
 
-                print(f"***Checkpoint results***")         
-                print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
-                print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+            if verbose_test and ((epoch+1) % 5 == 0):
+                with torch.no_grad():
+                    train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge,
+                    bound, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
-    # save posterior model and results in human readable format
-    torch.save(net.state_dict(), f'{posterior_folder}/posterior_model.pt')
-    result_posterior = {
-        'train_loss': loss_tr,
-        'train_error': err_tr,
-        'train_kl': kl_tr
-    }
-    with open(f'{posterior_folder}/posterior_results.json', 'w') as f:
-        json.dump(result_posterior, f, indent=4, default=vars)
+                    stch_loss, stch_err = testStochastic(net, test_loader, bound, device=device)
+                    post_loss, post_err = testPosteriorMean(net, test_loader, bound, device=device)
+                    ens_loss, ens_err = testEnsemble(net, test_loader, bound, device=device, samples=samples_ensemble)
 
-    plt.figure()
-    plt.plot(range(1,train_epochs+1), loss_tr)
-    plt.xlabel('Epochs')
-    plt.ylabel('Posterior NLL loss')
-    plt.savefig(f'{posterior_folder}/posterior_loss.pdf', dpi=300, bbox_inches='tight')
-    plt.figure()
-    plt.plot(range(1,train_epochs+1), err_tr)
-    plt.xlabel('Epochs')
-    plt.ylabel('Posterior 0-1 error')
-    plt.savefig(f'{posterior_folder}/posterior_err.pdf', dpi=300, bbox_inches='tight')
-    plt.figure()
-    plt.plot(range(1,train_epochs+1), kl_tr)
-    plt.xlabel('Epochs')
-    plt.ylabel('Posterior KL')
-    plt.savefig(f'{posterior_folder}/posterior_kl.pdf', dpi=300, bbox_inches='tight')
-    plt.close('all')
+                    print(f"***Checkpoint results***")         
+                    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
+                    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+
+        # save posterior model and results in human readable format
+        torch.save(net.state_dict(), f'{posterior_folder}/posterior_model.pt')
+        result_posterior = {
+            'train_loss': loss_tr,
+            'train_error': err_tr,
+            'train_kl': kl_tr
+        }
+        with open(f'{posterior_folder}/posterior_results.json', 'w') as f:
+            json.dump(result_posterior, f, indent=4, default=vars)
+
+        plt.figure()
+        plt.plot(range(1,train_epochs+1), loss_tr)
+        plt.xlabel('Epochs')
+        plt.ylabel('Posterior NLL loss')
+        plt.savefig(f'{posterior_folder}/posterior_loss.pdf', dpi=300, bbox_inches='tight')
+        plt.figure()
+        plt.plot(range(1,train_epochs+1), err_tr)
+        plt.xlabel('Epochs')
+        plt.ylabel('Posterior 0-1 error')
+        plt.savefig(f'{posterior_folder}/posterior_err.pdf', dpi=300, bbox_inches='tight')
+        plt.figure()
+        plt.plot(range(1,train_epochs+1), kl_tr)
+        plt.xlabel('Epochs')
+        plt.ylabel('Posterior KL')
+        plt.savefig(f'{posterior_folder}/posterior_kl.pdf', dpi=300, bbox_inches='tight')
+        plt.close('all')
 
     # Optimization: Final cleanup before potentially heavy certificate computation
     if device == 'cuda':
@@ -307,8 +322,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
     elif channel_type.lower() == 'bec':
         channel_specs = f'bec-outage{outage}'
+        wireless = True
     else:
         channel_specs = 'nochannel'
+        wireless = False
     certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
     # load trained posterior model for certificates
@@ -317,9 +334,9 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     with torch.no_grad():
         train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
-        stch_loss, stch_err = testStochastic(net, test_loader, bound, clamping, device=device)
-        post_loss, post_err = testPosteriorMean(net, test_loader, bound, clamping, device=device)
-        ens_loss, ens_err = testEnsemble(net, test_loader, bound, clamping, device=device, samples=samples_ensemble)
+        stch_loss, stch_err = testStochastic(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+        post_loss, post_err = testPosteriorMean(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+        ens_loss, ens_err = testEnsemble(net, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
 
     certificate_results = {
         'risk_certificate_ce': risk_ce,

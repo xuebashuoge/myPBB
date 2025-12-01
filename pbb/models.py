@@ -1735,9 +1735,8 @@ def trainPNNet(net, optimizer, pbobj, epoch, train_loader, clamping=True, lambda
                 f"-After optimising lambda: Train obj: {avgbound_l/len(train_loader) :.5f}, KL/n: {avgkl_l/len(train_loader) :.5f}, NLL loss: {avgloss_l/len(train_loader) :.5f}, Train 0-1 Error:  {avgerr_l/len(train_loader) :.5f}, last lambda value: {lambda_var.lamb_scaled.item() :.5f}")
     return avgbound/len(train_loader), avgkl/len(train_loader), avgloss/len(train_loader), avgerr/len(train_loader)
 
-
-def testStochastic(net, test_loader, pbobj, clamping=True, device='cuda'):
-    """Test function for the stochastic predictor using a PNN
+def testStochastic(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda', mc_samples=100):
+    """Test function for the stochastic predictor using a PNN with wireless channel layers
 
     Parameters
     ----------
@@ -1753,27 +1752,91 @@ def testStochastic(net, test_loader, pbobj, clamping=True, device='cuda'):
     device : string
         Device the code will run in (e.g. 'cuda')
 
+    mc_samples: int
+        Number of Monte Carlo samples to use for estimating the risk
+
     """
     # compute mean test accuracy
     net.eval()
     correct, cross_entropy, total = 0, 0.0, 0.0
+    forward_args = {
+        'sample': True,
+        'clamping': clamping,
+        'pmin': pbobj.pmin
+    }
+    if wireless:
+        forward_args['wireless'] = True
     outputs = torch.zeros(test_loader.batch_size, pbobj.classes).to(device)
     with torch.no_grad():
         for data, target in tqdm(test_loader):
             data, target = data.to(device), target.to(device)
             for i in range(len(data)):
-                outputs[i, :] = net(data[i:i+1], sample=True,
-                                    clamping=clamping, pmin=pbobj.pmin)
-            cross_entropy += pbobj.compute_empirical_risk(
-                outputs, target, bounded=clamping)
+                outputs[i, :] = net(data[i:i+1], **forward_args)
+            cross_entropy += pbobj.compute_empirical_risk(outputs, target, bounded=clamping)
             pred = outputs.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
 
     return cross_entropy/len(test_loader), 1-(correct/total)
 
+    # Accumulators
+    total_expected_risk = 0.0
+    total_expected_errors = 0.0
+    total_samples = 0
+    
+    forward_args = {
+        'sample': True,
+        'clamping': clamping,
+        'pmin': pbobj.pmin
+    }
+    if wireless:
+        forward_args['wireless'] = True
 
-def testPosteriorMean(net, test_loader, pbobj, clamping=True, device='cuda'):
+    with torch.no_grad():
+        for data, target in tqdm(test_loader, desc="Stochastic Testing"):
+            data, target = data.to(device), target.to(device)
+            current_batch_size = target.size(0)
+            
+            # Temporary accumulators for the current batch across MC trials
+            batch_risk_sum = 0.0
+            batch_error_sum = 0.0
+
+            # MC Loop: We loop over samples, but keep the Data Batch intact.
+            # This is significantly faster than looping over data points.
+            for _ in range(mc_samples):
+                # 1. Forward pass on the whole batch
+                # net() samples new weights/noise for the entire batch at once
+                output = net(data, **forward_args)
+
+                # 2. Compute Risk for this realization (Gibbs Risk contribution)
+                # Assumes compute_empirical_risk returns the mean risk for the batch
+                risk = pbobj.compute_empirical_risk(output, target, bounded=clamping)
+                batch_risk_sum += risk
+                
+                # 3. Compute Error for this realization
+                pred = output.max(1, keepdim=True)[1]
+                # Count incorrect predictions for this specific weight realization
+                incorrect_count = current_batch_size - pred.eq(target.view_as(pred)).sum().item()
+                batch_error_sum += incorrect_count
+
+            # Average over MC samples to get Expected Risk/Error for this batch
+            # We divide by mc_samples here to normalize the Monte Carlo integration
+            total_expected_risk += (batch_risk_sum / mc_samples)
+            total_expected_errors += (batch_error_sum / mc_samples)
+            
+            total_samples += current_batch_size
+
+    # Final Calculation
+    # Assuming user's original logic where risk was divided by len(test_loader) (batch count)
+    final_avg_risk = total_expected_risk / len(test_loader)
+    
+    # Average Error Rate = Total Expected Errors / Total Samples
+    final_avg_error = total_expected_errors / total_samples
+
+    return final_avg_risk, final_avg_error
+
+
+def testPosteriorMean(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda'):
     """Test function for the deterministic predictor using a PNN
     (uses the posterior mean)
 
@@ -1794,12 +1857,18 @@ def testPosteriorMean(net, test_loader, pbobj, clamping=True, device='cuda'):
     """
     net.eval()
     correct, total = 0, 0.0
+    forward_args = {
+        'sample': False,
+        'clamping': clamping,
+        'pmin': pbobj.pmin
+    }
+    if wireless:
+        forward_args['wireless'] = True
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            outputs = net(data, sample=False, clamping=clamping, pmin=pbobj.pmin)
-            cross_entropy = pbobj.compute_empirical_risk(
-                outputs, target, bounded=clamping)
+            outputs = net(data, **forward_args)
+            cross_entropy = pbobj.compute_empirical_risk(outputs, target, bounded=clamping)
             pred = outputs.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
@@ -1807,7 +1876,7 @@ def testPosteriorMean(net, test_loader, pbobj, clamping=True, device='cuda'):
     return cross_entropy, 1-(correct/total)
 
 
-def testEnsemble(net, test_loader, pbobj, clamping=True, device='cuda', samples=100):
+def testEnsemble(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda', samples=100):
     """Test function for the ensemble predictor using a PNN
 
     Parameters
@@ -1830,12 +1899,20 @@ def testEnsemble(net, test_loader, pbobj, clamping=True, device='cuda', samples=
     """
     net.eval()
     correct, cross_entropy, total = 0, 0.0, 0.0
+    forward_args = {
+        'sample': True,
+        'clamping': clamping,
+        'pmin': pbobj.pmin
+    }
+    if wireless:
+        forward_args['wireless'] = True
+
     with torch.no_grad():
         for data, target in tqdm(test_loader):
             data, target = data.to(device), target.to(device)
             outputs = torch.zeros(samples, test_loader.batch_size, pbobj.classes).to(device)
             for i in range(samples):
-                outputs[i] = net(data, sample=True, clamping=clamping, pmin=pbobj.pmin)
+                outputs[i] = net(data, **forward_args)
             avgoutput = outputs.mean(0)
             cross_entropy = pbobj.compute_empirical_risk(
                 avgoutput, target, bounded=clamping)
@@ -1844,53 +1921,6 @@ def testEnsemble(net, test_loader, pbobj, clamping=True, device='cuda', samples=
             total += target.size(0)
 
     return cross_entropy/len(test_loader), 1-(correct/total)
-
-def computeChannelRiskCertificates(net, channel_type, outage, tx_power, noise_var, pbobj, clamping=True, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
-    """Function to compute risk certificates and other statistics at the end of training
-    for networks with wireless channel layers
-
-    Parameters
-    ----------
-    net : PNNet/PCNNet object
-        Network object to test
-
-    channel_type: string
-        Type of wireless channel used (e.g. 'bec', 'awgn')
-
-    outage: float
-        Outage probability for the wireless channel
-
-    tx_power: float
-        Transmit power for the wireless channel
-
-    noise_var: float
-        Noise variance for the wireless channel
-
-    pbobj : pbobj object
-        PAC-Bayes inspired training objective used during training
-
-    device : string
-        Device the code will run in (e.g. 'cuda')
-
-    lambda_var : Lambda_var object
-        Lambda variable for training objective flamb
-
-    train_loader: DataLoader object
-        Data loader for computing the risk certificate (multiple batches, used if toolarge=True)
-
-    whole_train: DataLoader object
-        Data loader for computing the risk certificate (one unique batch, used if toolarge=False)
-
-    """
-    net.eval()
-    with torch.no_grad():
-        # a bit hacky, we load the whole dataset to compute the bound
-        for data, target in whole_train:
-            data, target = data.to(device), target.to(device)
-            train_obj, kl, loss_ce_train, err_01_train, risk_ce, risk_01 = pbobj.compute_final_stats_channel_risk(
-                net, channel_type, outage, tx_power, noise_var, lambda_var=lambda_var, clamping=clamping, input=data, target=target)
-
-    return train_obj, risk_ce, risk_01, kl, loss_ce_train, err_01_train
 
 def computeRiskCertificates(net, toolarge, pbobj, clamping=True, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
     """Function to compute risk certificates and other statistics at the end of training
