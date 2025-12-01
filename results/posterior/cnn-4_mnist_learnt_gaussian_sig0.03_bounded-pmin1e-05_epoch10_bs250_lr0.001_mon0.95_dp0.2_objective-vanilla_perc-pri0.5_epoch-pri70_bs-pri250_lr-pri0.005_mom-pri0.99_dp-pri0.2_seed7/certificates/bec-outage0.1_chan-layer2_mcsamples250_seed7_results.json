@@ -9,5 +9,6 @@
     "posterior_mean_loss": {},
     "posterior_mean_01_error": 0.8865,
     "ensemble_loss": {},
-    "ensemble_01_error": 0.8865
+    "ensemble_01_error": 0.8865,
+    "errornet0": 0.011199999999999988
 }
