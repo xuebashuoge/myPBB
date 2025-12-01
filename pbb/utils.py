@@ -168,6 +168,9 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         net0.load_state_dict(torch.load(f'{prior_folder}/prior_model.pt', map_location=device))
         with open(f'{prior_folder}/prior_results.json', 'r') as f:
             result_prior = json.load(f)
+        
+        errornet0 = result_prior['test_error']
+
         print(f"Loaded prior model from file: {prior_folder}/prior_model.pt")
         print(f"Prior train loss: {result_prior['train_loss'][-1]}, train error: {result_prior['train_error'][-1]}, test error: {result_prior['test_error']}")
     else:
@@ -323,6 +326,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     # certificates files
     if channel_type.lower() == 'rayleigh':
         channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
+        wireless = True
     elif channel_type.lower() == 'bec':
         channel_specs = f'bec-outage{outage}'
         wireless = True
@@ -353,6 +357,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'posterior_mean_01_error': post_err,
         'ensemble_loss': ens_loss,
         'ensemble_01_error': ens_err,
+        'errornet0': errornet0
     }
 
     with open(certificate_file, 'w') as f:

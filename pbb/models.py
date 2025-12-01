@@ -1199,11 +1199,11 @@ class ProbCNNet4lChannel(nn.Module):
         # conv layers
         if self.l_0 == 0:
             x = apply_channel(x)
-        x = F.relu(self.conv1(x, sample, kl))
+        x = F.relu(self.conv1(x, sample))
 
         if self.l_0 == 1:
             x = apply_channel(x)
-        x = F.relu(self.conv2(x, sample, kl))
+        x = F.relu(self.conv2(x, sample))
         x = F.max_pool2d(x, 2)
 
         # flatten
@@ -1212,11 +1212,11 @@ class ProbCNNet4lChannel(nn.Module):
         # fc layers
         if self.l_0 == 2:
             x = apply_channel(x)
-        x = F.relu(self.fc1(x, sample, kl))
+        x = F.relu(self.fc1(x, sample))
 
         if self.l_0 == 3:
             x = apply_channel(x)
-        x = output_transform(self.fc2(x, sample, kl), clamping, pmin)
+        x = output_transform(self.fc2(x, sample), clamping, pmin)
 
         return (x, channel_params) if return_channel_weight else x
 
@@ -1275,44 +1275,44 @@ class ProbCNNet9lChannel(nn.Module):
         # conv layers
         if self.l_0 == 0:
             x = apply_channel(x)
-        x = F.relu(self.conv1(x, sample, kl))
+        x = F.relu(self.conv1(x, sample))
         
         if self.l_0 == 1:
             x = apply_channel(x)
-        x = F.relu(self.conv2(x, sample, kl))
+        x = F.relu(self.conv2(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
         
         if self.l_0 == 2:
             x = apply_channel(x)
-        x = F.relu(self.conv3(x, sample, kl))
+        x = F.relu(self.conv3(x, sample))
         
         if self.l_0 == 3:
             x = apply_channel(x)
-        x = F.relu(self.conv4(x, sample, kl))
+        x = F.relu(self.conv4(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         if self.l_0 == 4:
             x = apply_channel(x)
-        x = F.relu(self.conv5(x, sample, kl))
+        x = F.relu(self.conv5(x, sample))
 
         if self.l_0 == 5:
             x = apply_channel(x)
-        x = F.relu(self.conv6(x, sample, kl))
+        x = F.relu(self.conv6(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
         # flatten
         x = x.view(x.size(0), -1)
         # fc layer
         if self.l_0 == 6:
             x = apply_channel(x)
-        x = F.relu(self.fcl1(x, sample, kl))
+        x = F.relu(self.fcl1(x, sample))
 
         if self.l_0 == 7:
             x = apply_channel(x)
-        x = F.relu(self.fcl2(x, sample, kl))
+        x = F.relu(self.fcl2(x, sample))
 
         if self.l_0 == 8:
             x = apply_channel(x)
-        x = self.fcl3(x, sample, kl)
+        x = self.fcl3(x, sample)
         x = output_transform(x, clamping, pmin)
         
         return (x, channel_params) if return_channel_weight else x
@@ -1366,46 +1366,46 @@ class ProbCNNet13lChannel(nn.Module):
         # conv layers
         if self.l_0 == 0:
             x = apply_channel(x)
-        x = F.relu(self.conv1(x, sample, kl))
+        x = F.relu(self.conv1(x, sample))
         
         if self.l_0 == 1:
             x = apply_channel(x)
-        x = F.relu(self.conv2(x, sample, kl))
+        x = F.relu(self.conv2(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
         
         if self.l_0 == 2:
             x = apply_channel(x)
-        x = F.relu(self.conv3(x, sample, kl))
+        x = F.relu(self.conv3(x, sample))
         
         if self.l_0 == 3:
             x = apply_channel(x)
-        x = F.relu(self.conv4(x, sample, kl))
+        x = F.relu(self.conv4(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         if self.l_0 == 4:
             x = apply_channel(x)
-        x = F.relu(self.conv5(x, sample, kl))
+        x = F.relu(self.conv5(x, sample))
 
         if self.l_0 == 5:
             x = apply_channel(x)
-        x = F.relu(self.conv6(x, sample, kl))
+        x = F.relu(self.conv6(x, sample))
 
         if self.l_0 == 6:
             x = apply_channel(x)
-        x = F.relu(self.conv7(x, sample, kl))
+        x = F.relu(self.conv7(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         if self.l_0 == 7:
             x = apply_channel(x)
-        x = F.relu(self.conv8(x, sample, kl))
+        x = F.relu(self.conv8(x, sample))
 
         if self.l_0 == 8:
             x = apply_channel(x)
-        x = F.relu(self.conv9(x, sample, kl))
+        x = F.relu(self.conv9(x, sample))
 
         if self.l_0 == 9:
             x = apply_channel(x)
-        x = F.relu(self.conv10(x, sample, kl))
+        x = F.relu(self.conv10(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         # flatten
@@ -1414,15 +1414,15 @@ class ProbCNNet13lChannel(nn.Module):
         # fc layer
         if self.l_0 == 10:
             x = apply_channel(x)
-        x = F.relu(self.fcl1(x, sample, kl))
+        x = F.relu(self.fcl1(x, sample))
 
         if self.l_0 == 11:
             x = apply_channel(x)
-        x = F.relu(self.fcl2(x, sample, kl))
+        x = F.relu(self.fcl2(x, sample))
 
         if self.l_0 == 12:
             x = apply_channel(x)
-        x = self.fcl3(x, sample, kl)
+        x = self.fcl3(x, sample)
         x = output_transform(x, clamping, pmin)
         
         return (x, channel_params) if return_channel_weight else x
@@ -1478,54 +1478,54 @@ class ProbCNNet15lChannel(nn.Module):
         # conv layers
         if self.l_0 == 0:
             x = apply_channel(x)
-        x = F.relu(self.conv1(x, sample, kl))
+        x = F.relu(self.conv1(x, sample))
         
         if self.l_0 == 1:
             x = apply_channel(x)
-        x = F.relu(self.conv2(x, sample, kl))
+        x = F.relu(self.conv2(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
         
         if self.l_0 == 2:
             x = apply_channel(x)
-        x = F.relu(self.conv3(x, sample, kl))
+        x = F.relu(self.conv3(x, sample))
         
         if self.l_0 == 3:
             x = apply_channel(x)
-        x = F.relu(self.conv4(x, sample, kl))
+        x = F.relu(self.conv4(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         if self.l_0 == 4:
             x = apply_channel(x)
-        x = F.relu(self.conv5(x, sample, kl))
+        x = F.relu(self.conv5(x, sample))
 
         if self.l_0 == 5:
             x = apply_channel(x)
-        x = F.relu(self.conv6(x, sample, kl))
+        x = F.relu(self.conv6(x, sample))
 
         if self.l_0 == 6:
             x = apply_channel(x)
-        x = F.relu(self.conv7(x, sample, kl))
+        x = F.relu(self.conv7(x, sample))
 
         if self.l_0 == 7:
             x = apply_channel(x)
-        x = F.relu(self.conv8(x, sample, kl))
+        x = F.relu(self.conv8(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         if self.l_0 == 8:
             x = apply_channel(x)
-        x = F.relu(self.conv9(x, sample, kl))
+        x = F.relu(self.conv9(x, sample))
 
         if self.l_0 == 9:
             x = apply_channel(x)
-        x = F.relu(self.conv10(x, sample, kl))
+        x = F.relu(self.conv10(x, sample))
 
         if self.l_0 == 10:
             x = apply_channel(x)
-        x = F.relu(self.conv11(x, sample, kl))
+        x = F.relu(self.conv11(x, sample))
 
         if self.l_0 == 11:
             x = apply_channel(x)
-        x = F.relu(self.conv12(x, sample, kl))
+        x = F.relu(self.conv12(x, sample))
         x = F.max_pool2d(x, kernel_size=2, stride=2)
 
         # flatten
@@ -1534,15 +1534,15 @@ class ProbCNNet15lChannel(nn.Module):
         # fc layer
         if self.l_0 == 12:
             x = apply_channel(x)
-        x = F.relu(self.fcl1(x, sample, kl))
+        x = F.relu(self.fcl1(x, sample))
         
         if self.l_0 == 13:
             x = apply_channel(x)
-        x = F.relu(self.fcl2(x, sample, kl))
+        x = F.relu(self.fcl2(x, sample))
 
         if self.l_0 == 14:
             x = apply_channel(x)
-        x = self.fcl3(x, sample, kl)
+        x = self.fcl3(x, sample)
         x = output_transform(x, clamping, pmin)
 
         return (x, channel_params) if return_channel_weight else x
