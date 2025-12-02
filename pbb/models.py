@@ -1709,11 +1709,10 @@ def trainPNNet(net, optimizer, pbobj, epoch, train_loader, clamping=True, lambda
     for data, target in tqdm(train_loader):
         data, target = data.to(pbobj.device), target.to(pbobj.device)
         net.zero_grad()
-        bound, kl, _, loss, err = pbobj.train_obj(
-            net, data, target, lambda_var=lambda_var, clamping=clamping)
+        bound, kl, _, loss, err = pbobj.train_obj(net, data, target, lambda_var=lambda_var, clamping=clamping)
         
         
-        kl_debug.append(kl.item() if torch.is_tensor(kl) else kl)
+        # kl_debug.append(kl.item() if torch.is_tensor(kl) else kl)
 
         bound.backward()
         optimizer.step()
