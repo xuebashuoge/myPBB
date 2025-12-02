@@ -172,7 +172,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         errornet0 = result_prior['test_error']
 
         print(f"Loaded prior model from file: {prior_folder}/prior_model.pt")
-        print(f"Prior train loss: {result_prior['train_loss'][-1]}, train error: {result_prior['train_error'][-1]}, test error: {result_prior['test_error']}")
+        if prior_type == 'learnt':
+            print(f"Prior train loss: {result_prior['train_loss'][-1]}, train error: {result_prior['train_error'][-1]}, test error: {result_prior['test_error']}")
+        elif prior_type == 'rand':
+            print(f"Prior test error: {result_prior['test_error']}")
     else:
         print("Training prior model from scratch.")
         if prior_type == 'learnt':
@@ -185,6 +188,21 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
                 avgloss_pri, avgerr_pri = trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
                 loss_pri_tr.append(avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri)
                 error_pri_tr.append(avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri)
+
+            plt.figure()
+            plt.plot(range(1,prior_epochs+1), loss_pri_tr)
+            plt.xlabel('Epochs')
+            plt.ylabel('Prior NLL loss')
+            plt.savefig(f'{prior_folder}/prior_loss.pdf', dpi=300, bbox_inches='tight')
+
+            plt.figure()
+            plt.plot(range(1,prior_epochs+1), error_pri_tr)
+            plt.xlabel('Epochs')
+            plt.ylabel('Prior 0-1 error')
+            plt.savefig(f'{prior_folder}/prior_err.pdf', dpi=300, bbox_inches='tight')
+
+            plt.close('all')
+
         # test for prior network
         # Optimization: Clean cache
         if device.type == 'cuda':
@@ -198,26 +216,15 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         # save prior model and results in human readable format
         torch.save(net0.state_dict(), f'{prior_folder}/prior_model.pt')
         result_prior = {
-            'train_loss': loss_pri_tr,
-            'train_error': error_pri_tr,
             'test_error': errornet0
         }
+        if prior_type == 'learnt':
+            result_prior['train_loss'] = loss_pri_tr
+            result_prior['train_error'] = error_pri_tr
+
         with open(f'{prior_folder}/prior_results.json', 'w') as f:
             json.dump(result_prior, f, indent=4, default=vars)
 
-        plt.figure()
-        plt.plot(range(1,prior_epochs+1), loss_pri_tr)
-        plt.xlabel('Epochs')
-        plt.ylabel('Prior NLL loss')
-        plt.savefig(f'{prior_folder}/prior_loss.pdf', dpi=300, bbox_inches='tight')
-
-        plt.figure()
-        plt.plot(range(1,prior_epochs+1), error_pri_tr)
-        plt.xlabel('Epochs')
-        plt.ylabel('Prior 0-1 error')
-        plt.savefig(f'{prior_folder}/prior_err.pdf', dpi=300, bbox_inches='tight')
-
-        plt.close('all')
 
     posterior_n_size = len(train_loader.dataset)
     bound_n_size = len(val_bound.dataset)
