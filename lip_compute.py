@@ -5,7 +5,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(torch.cuda.is_available())
 
 BATCH_SIZE = 250
-PRIOR = 'learnt'
+PRIOR = 'rand'
 
 SIGMAPRIOR = 0.03
 PMIN = 1e-5
