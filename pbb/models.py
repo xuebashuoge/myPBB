@@ -339,8 +339,7 @@ class ProbLinear(nn.Module):
             bias = self.bias.mu
         if self.training:
             # sum of the KL computed for weights and biases
-            self.kl_div = self.weight.compute_kl(self.weight_prior) + \
-                self.bias.compute_kl(self.bias_prior)
+            self.kl_div = self.weight.compute_kl(self.weight_prior) + self.bias.compute_kl(self.bias_prior)
 
         return F.linear(input, weight, bias)
 
