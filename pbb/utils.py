@@ -333,13 +333,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     # certificates files
     if channel_type.lower() == 'rayleigh':
         channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
-        wireless = True
     elif channel_type.lower() == 'bec':
         channel_specs = f'bec-outage{outage}'
-        wireless = True
     else:
         channel_specs = 'nochannel'
-        wireless = False
     certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
     # load trained posterior model for certificates
@@ -645,15 +642,6 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
 
             buffers = {name: buf for name, buf in net.named_buffers()}
 
-            # calculate other weights (which is fixed for all data samples in the loader)
-            d_other_sq = torch.tensor(0.0, device=device)
-            for k in sampled_weights.keys():
-                if k not in sampled_weights_prime:
-                    raise RuntimeError(f"Key {k} not found in sampled_weights_prime")
-                diff = (sampled_weights[k] - sampled_weights_prime[k])
-                d_other_sq += torch.sum(diff * diff)
-            d_other_sq = d_other_sq.to(device)
-
             for data_batch, target_batch in test_loader:
                 data_batch, target_batch = data_batch.to(device), target_batch.to(device)
                 
@@ -676,6 +664,21 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
             if device == 'cuda': torch.cuda.empty_cache()
             elif device == 'mps': torch.mps.empty_cache()
             gc.collect()
+
+    print(f"Estimated Lipschitz constant over {mc_samples} MC samples: {max_k}")
+
+    if channel_type.lower() == 'rayleigh':
+        channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
+    elif channel_type.lower() == 'bec':
+        channel_specs = f'bec-outage{outage}'
+    else:
+        channel_specs = 'nochannel'
+
+    lip_folder = f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}/'
+    os.makedirs(lip_folder, exist_ok=True)
+
+    with open(f'{lip_folder}/lipschitz_results.json', 'w') as f:
+        json.dump({'lipschitz_constant': max_k}, f, indent=4, default=vars)
 
 def count_parameters(model): 
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
