@@ -1713,24 +1713,26 @@ def trainPNNet(net, optimizer, pbobj, epoch, train_loader, clamping=True, lambda
             net, data, target, lambda_var=lambda_var, clamping=clamping)
         
         
-        kl_debug.append(kl)
+        kl_debug.append(kl.item() if torch.is_tensor(kl) else kl)
 
         bound.backward()
         optimizer.step()
         avgbound += bound.item()
-        avgkl += kl
+        avgkl += kl.item() if torch.is_tensor(kl) else kl
         avgloss += loss.item()
         avgerr += err
 
         if pbobj.objective == 'flamb':
             # for flamb we also need to optimise the lambda variable
+            # Need to zero gradients before second forward/backward pass
+            net.zero_grad()
             lambda_var.zero_grad()
             bound_l, kl_l, _, loss_l, err_l = pbobj.train_obj(
                 net, data, target, lambda_var=lambda_var, clamping=clamping)
             bound_l.backward()
             optimizer_lambda.step()
             avgbound_l += bound_l.item()
-            avgkl_l += kl_l
+            avgkl_l += kl_l.item() if torch.is_tensor(kl_l) else kl_l
             avgloss_l += loss_l.item()
             avgerr_l += err_l
 
