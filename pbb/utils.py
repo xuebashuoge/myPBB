@@ -333,10 +333,13 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     # certificates files
     if channel_type.lower() == 'rayleigh':
         channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
+        wireless = True
     elif channel_type.lower() == 'bec':
         channel_specs = f'bec-outage{outage}'
+        wireless = True
     else:
         channel_specs = 'nochannel'
+        wireless = False
     certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
     # load trained posterior model for certificates
@@ -379,6 +382,201 @@ def compute_empirical_risk(outputs, targets, pmin, clamping=True, per_sample=Fal
     if clamping == True:
         empirical_risk = (1./(np.log(1./pmin))) * empirical_risk
     return empirical_risk
+
+def compute_lipschitz(name_data, prior_type, model, sigma_prior, pmin, learning_rate_prior=0.01, momentum_prior=0.95, layers=9, clamping=True, mc_samples=1000, chunk_size=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7):
+    """
+    Compute the Lipschitz constant for the given model and data. The model weights follows the prior distribution, where only the l0-th layer is determined by channel, while other layers are sampled from the prior.
+
+    Parameters
+    ----------
+    name_data : str
+        Name of the dataset.
+
+    prior_type : str
+        Type of the prior distribution.
+
+    model : nn.Module
+        The model to evaluate.
+
+    sigma_prior : float
+        The prior standard deviation.
+
+    pmin : float
+        The minimum probability.
+
+    layers : int, optional
+        Number of layers in the model (default is 9).
+
+    clamping : bool, optional
+        Whether to apply clamping (default is True).
+
+    mc_samples : int, optional
+        Number of Monte Carlo samples (default is 1000).
+
+    samples_ensemble : int, optional
+        Number of samples for ensemble (default is 100).
+
+    prior_dist : str, optional
+        Type of the prior distribution (default is 'gaussian').
+
+    verbose : bool, optional
+        Whether to print verbose output (default is False).
+
+    device : str, optional
+        Device to run the computation on (default is 'cuda').
+
+    channel_type : str, optional
+        Type of the channel (default is 'nochannel').
+
+    outage : float, optional
+        Outage probability (default is 0.1).
+
+    noise_var : float, optional
+        Noise variance (default is 1.0).
+
+    tx_power : float, optional
+        Transmission power (default is 1.0).
+
+    l_0 : int, optional
+        Initial layer (default is 2).
+
+    seed : int, optional
+        Random seed (default is 7).
+
+    Returns
+    -------
+    float
+        The computed Lipschitz constant.
+    """
+
+    # this makes the initialised prior the same for all bounds
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    g = torch.Generator()
+    g.manual_seed(seed)
+
+    def seed_worker(worker_id):
+        import random as py_random
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        py_random.seed(worker_seed)
+
+    loader_kargs = {'num_workers': 1,
+                    'pin_memory': True} if torch.cuda.is_available() else {}
+    # loader_kargs['persistent_workers'] = True
+    loader_kargs['generator'] = g
+    loader_kargs['worker_init_fn'] = seed_worker
+
+    train, test = data.loaddataset(name_data)
+
+    if prior_type == 'rand':
+        dropout_prob = 0.0
+
+    # result path for prior, posterior, and certificates
+    prior_folder = f'results/prior/{model}-{layers}_{name_data}_{prior_type}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type == 'learnt' else ''}_seed{seed}/'
+
+    train_loader, test_loader, valid_loader, val_bound_one_batch, _, val_bound = data.loadbatches(train, test, loader_kargs, batch_size, prior=(prior_type == 'learnt'), perc_train=perc_train, perc_prior=perc_prior, seed=seed)
+
+    net0 = select_prior_network(model, layers, name_data, dropout_prob, device=device)
+
+    if os.path.exists(f'{prior_folder}/prior_model.pt'):
+        net0.load_state_dict(torch.load(f'{prior_folder}/prior_model.pt', map_location=device))
+        with open(f'{prior_folder}/prior_results.json', 'r') as f:
+            result_prior = json.load(f)
+        
+        errornet0 = result_prior['test_error']
+
+        print(f"Loaded prior model from file: {prior_folder}/prior_model.pt")
+        if prior_type == 'learnt':
+            print(f"Prior train loss: {result_prior['train_loss'][-1]}, train error: {result_prior['train_error'][-1]}, test error: {result_prior['test_error']}")
+        elif prior_type == 'rand':
+            print(f"Prior test error: {result_prior['test_error']}")
+    else:
+        print("Training prior model from scratch.")
+        if prior_type == 'learnt':
+            optimizer = optim.SGD(
+                net0.parameters(), lr=learning_rate_prior, momentum=momentum_prior)
+            
+            loss_pri_tr = []
+            error_pri_tr = []
+            for epoch in trange(prior_epochs):
+                avgloss_pri, avgerr_pri = trainNNet(net0, optimizer, epoch, valid_loader, device=device, verbose=verbose)
+                loss_pri_tr.append(avgloss_pri.item() if torch.is_tensor(avgloss_pri) else avgloss_pri)
+                error_pri_tr.append(avgerr_pri.item() if torch.is_tensor(avgerr_pri) else avgerr_pri)
+
+            plt.figure()
+            plt.plot(range(1,prior_epochs+1), loss_pri_tr)
+            plt.xlabel('Epochs')
+            plt.ylabel('Prior NLL loss')
+            plt.savefig(f'{prior_folder}/prior_loss.pdf', dpi=300, bbox_inches='tight')
+
+            plt.figure()
+            plt.plot(range(1,prior_epochs+1), error_pri_tr)
+            plt.xlabel('Epochs')
+            plt.ylabel('Prior 0-1 error')
+            plt.savefig(f'{prior_folder}/prior_err.pdf', dpi=300, bbox_inches='tight')
+
+            plt.close('all')
+
+        # test for prior network
+        # Optimization: Clean cache
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+        elif device.type == 'mps':
+            torch.mps.empty_cache()
+
+        with torch.no_grad():
+            errornet0 = testNNet(net0, test_loader, device=device)
+
+        # save prior model and results in human readable format
+        torch.save(net0.state_dict(), f'{prior_folder}/prior_model.pt')
+        result_prior = {
+            'test_error': errornet0
+        }
+        if prior_type == 'learnt':
+            result_prior['train_loss'] = loss_pri_tr
+            result_prior['train_error'] = error_pri_tr
+
+        with open(f'{prior_folder}/prior_results.json', 'w') as f:
+            json.dump(result_prior, f, indent=4, default=vars)
+
+    net_prime = select_channel_network(model, layers, name_data, sigma_prior, prior_dist, l_0, channel_type, outage, tx_power, noise_var, device=device, init_net=net0)
+    net = select_network(model, layers, name_data, sigma_prior, prior_dist, device=device, init_net=net0)
+    net_prime.eval()
+    net.eval()
+
+
+    # Optimization: Clear memory
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
+    elif device.type == 'mps':
+        torch.mps.empty_cache()
+    gc.collect()
+
+    max_k = 0.0
+
+
+    outputs = torch.zeros(test_loader.batch_size, test_loader.dataset.classes).to(device)
+    outputs_prime = torch.zeros(test_loader.batch_size, test_loader.dataset.classes).to(device)
+    with torch.no_grad():
+        for data, target in tqdm(test_loader):
+            data, target = data.to(device), target.to(device)
+            for i in range(len(data)):
+                outputs[i, :] = net(data[i:i+1], sample=True, clamping=clamping, pmin=pmin)
+                outputs_prime[i, :] = net_prime(data[i:i+1], sample=True, clamping=clamping, pmin=pmin, wireless=True)
+            
+            cross_entropy = compute_empirical_risk(outputs, target, pmin, clamping, per_sample=True)
+            cross_entropy_prime = compute_empirical_risk(outputs_prime, target, pmin, clamping, per_sample=True)
+
+            differences = torch.abs(cross_entropy - cross_entropy_prime)
+
+            # TBC: cannot get the sampled weights
+            
+
+
 
 def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, learning_rate_prior=0.01, momentum_prior=0.95, layers=9, clamping=True, mc_samples=1000, chunk_size=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7):
     """
