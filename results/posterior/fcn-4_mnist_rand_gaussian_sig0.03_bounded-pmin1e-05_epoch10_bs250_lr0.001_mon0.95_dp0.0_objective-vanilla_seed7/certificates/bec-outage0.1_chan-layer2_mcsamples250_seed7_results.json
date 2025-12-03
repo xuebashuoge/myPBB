@@ -1,0 +1,14 @@
+{
+    "risk_certificate_ce": 0.2576402432438813,
+    "risk_certificate_01": 0.5015932059778205,
+    "kl_divergence": {},
+    "train_nll_loss": 0.12588669585784257,
+    "train_01_error": 0.34072555313250275,
+    "stochastic_loss": {},
+    "stochastic_01_error": 0.2583,
+    "posterior_mean_loss": {},
+    "posterior_mean_01_error": 0.1523,
+    "ensemble_loss": {},
+    "ensemble_01_error": 0.14129999999999998,
+    "errornet0": 0.8792
+}
