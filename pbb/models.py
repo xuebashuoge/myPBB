@@ -1031,9 +1031,9 @@ class Bernoulli(nn.Module):
     """
     def __init__(self, p, device='cuda'):
         super().__init__()
-        self.p =p
+        self.p = p
         self.device = device
-        self.bernoulli_dist = td.Bernoulli(1 - self.p)
+        self.bernoulli_dist = td.Bernoulli(1.0 - self.p)
 
     def sample(self, sample_shape):
         # Return a tensor with samples from the Bernoulli distribution
