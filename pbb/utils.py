@@ -261,13 +261,12 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         net.load_state_dict(torch.load(f'{posterior_folder}/posterior_model.pt', map_location=device))
         with open(f'{posterior_folder}/posterior_results.json', 'r') as f:
             result_posterior = json.load(f)
+
+        kl_final = result_posterior['kl_final']
         print(f"Loaded posterior model from file: {posterior_folder}/posterior_model.pt")
-        print(f"Posterior train loss: {result_posterior['train_loss'][-1]}, train error: {result_posterior['train_error'][-1]}, kl: {result_posterior['train_kl'][-1]}")
+        print(f"Posterior train loss: {result_posterior['train_loss'][-1]}, train error: {result_posterior['train_error'][-1]}, train kl/n: {result_posterior['train_kl'][-1]}, kl final: {kl_final}")
     else:
         print("Training posterior model from scratch.")
-
-
-        
 
         optimizer = optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
 
@@ -294,13 +293,17 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
                     print(f"***Checkpoint results***")         
                     print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
                     print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+            
+        # record final kl
+        kl_final = net.compute_kl()
 
         # save posterior model and results in human readable format
         torch.save(net.state_dict(), f'{posterior_folder}/posterior_model.pt')
         result_posterior = {
             'train_loss': loss_tr,
             'train_error': err_tr,
-            'train_kl': kl_tr
+            'train_kl': kl_tr,
+            'kl_final': kl_final.item() if torch.is_tensor(kl_final) else kl_final
         }
         with open(f'{posterior_folder}/posterior_results.json', 'w') as f:
             json.dump(result_posterior, f, indent=4, default=vars)
@@ -346,7 +349,8 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     net_channel.load_state_dict(state_dict=net.state_dict())
 
     with torch.no_grad():
-        train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
+        # this kl might be useless if network is load from file
+        train_obj, risk_ce, risk_01, _, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
         stch_loss, stch_err = testStochastic(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
         post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
@@ -355,7 +359,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     certificate_results = {
         'risk_certificate_ce': risk_ce,
         'risk_certificate_01': risk_01,
-        'kl_divergence': kl,
+        'kl_divergence': kl_final,
         'train_nll_loss': loss_ce_train,
         'train_01_error': loss_01_train,
         'stochastic_loss': stch_loss,
@@ -373,7 +377,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
 
     print(f"***Final results***") 
     print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
-    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl_final :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
 
 def compute_empirical_risk(outputs, targets, pmin, clamping=True, per_sample=False):
     # compute negative log likelihood loss and bound it with pmin (if applicable)
