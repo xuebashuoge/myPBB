@@ -582,7 +582,7 @@ def compute_lipschitz(name_data, prior_type, model, sigma_prior, pmin, learning_
 
 
 
-def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, learning_rate_prior=0.01, momentum_prior=0.95, layers=9, clamping=True, mc_samples=1000, chunk_size=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7):
+def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, learning_rate_prior=0.01, momentum_prior=0.95, layers=9, clamping=True, mc_samples=1000, chunk_size=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7, norm_type='frob'):
     """
     Compute the Lipschitz constant for the given model and data. The model weights follows the prior distribution, where only the l0-th layer is determined by channel, while other layers are sampled from the prior.
 
@@ -759,7 +759,7 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
 
     # Define a function that performs the core calculation for a SINGLE data sample.
     # vmap will then vectorize this across the whole batch.
-    def compute_k_for_sample(d_other_sq, sampled_weights, sampled_weights_prime, buffers, x_sample, y_sample):
+    def compute_k_for_sample(d_other_sq, sampled_weights, sampled_weights_prime, buffers, x_sample, y_sample, norm_type='frob'):
         # --- NO CHANNEL (w) ---
         # Forward pass for the ideal network (wireless=False)
         outputs = torch.func.functional_call(
@@ -796,7 +796,10 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
             d_channel_sq = (torch.sqrt(torch.sum(flat_w_diff.abs()**2)) + torch.sqrt(torch.sum(flat_b_diff.abs()**2)))**2
         else:
             # BEC channel case
-            d_channel_sq = torch.sum((channel_weight - 1.0)**2)
+            if norm_type == 'frob':
+                d_channel_sq = torch.sum((channel_weight - 1.0)**2)
+            elif norm_type == 'spec':
+                d_channel_sq = torch.max(torch.abs(channel_weight - 1.0)) ** 2
 
         d_w = torch.sqrt(d_other_sq + d_channel_sq)
 
@@ -840,7 +843,18 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
 
                     diff_weights = (sampled_weights[f"{name}.weight.mu"] - sampled_weights_prime[f"{name}.weight.mu"])
                     diff_bias = (sampled_weights[f"{name}.bias.mu"] - sampled_weights_prime[f"{name}.bias.mu"])
-                    d_other_sq += torch.sum(diff_weights * diff_weights) + torch.sum(diff_bias * diff_bias)
+
+                    if norm_type == 'frob':
+                        d_other_sq += torch.sum(diff_weights * diff_weights) + torch.sum(diff_bias * diff_bias)
+                    elif norm_type == 'spec':
+                        # Reshape to 2D matrix for spectral norm computation
+                        # For Conv2d: [out_channels, in_channels, kH, kW] -> [out_channels, in_channels*kH*kW]
+                        # For Linear: [out_features, in_features] -> already 2D
+                        diff_weights_2d = diff_weights.view(diff_weights.shape[0], -1)
+                        spectral_norm_w = torch.linalg.svdvals(diff_weights_2d)[0]
+                        norm_b = torch.linalg.norm(diff_bias.view(-1), ord=2)
+
+                        d_other_sq += (spectral_norm_w + norm_b) ** 2
 
             buffers = {name: buf for name, buf in net.named_buffers()}
 
