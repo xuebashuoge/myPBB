@@ -343,7 +343,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     else:
         channel_specs = 'nochannel'
         wireless = False
-    certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
+    certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}_results.json"
 
     # load trained posterior model for certificates
     net_channel.load_state_dict(state_dict=net.state_dict())
