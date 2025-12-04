@@ -809,7 +809,7 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
         return k_sample.squeeze()
 
     # Vectorize our single-sample function to run on a full batch.
-    vmapped_k_fn = torch.func.vmap(compute_k_for_sample, in_dims=(None, None, None, None, 0, 0), chunk_size=chunk_size, randomness="different")
+    vmapped_k_fn = torch.func.vmap(compute_k_for_sample, in_dims=(None, None, None, None, 0, 0, None), chunk_size=chunk_size, randomness="different")
 
     # Before the mc_samples loop, get the parameter names once
     param_names = []
@@ -862,7 +862,7 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
                 data_batch, target_batch = data_batch.to(device), target_batch.to(device)
                 
                 # 2. Compute all per-sample k values in one vectorized call
-                k_values_batch = vmapped_k_fn(d_other_sq, sampled_weights, sampled_weights_prime, buffers, data_batch, target_batch)
+                k_values_batch = vmapped_k_fn(d_other_sq, sampled_weights, sampled_weights_prime, buffers, data_batch, target_batch, norm_type)
 
                 # 3. Find the max k in the current batch and update the global max
                 batch_max_k = torch.max(k_values_batch).item()
@@ -890,7 +890,7 @@ def compute_lipschitz_parallel(name_data, prior_type, model, sigma_prior, pmin, 
     else:
         channel_specs = 'nochannel'
 
-    lip_folder = f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}/'
+    lip_folder = f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}/'
     os.makedirs(lip_folder, exist_ok=True)
 
     with open(f'{lip_folder}/lipschitz_results.json', 'w') as f:
