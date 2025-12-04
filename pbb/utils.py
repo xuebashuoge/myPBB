@@ -396,6 +396,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'ensemble_01_error': ens_err,
         'errornet0': errornet0,
         'channel_term': channel_term,
+        'dimension_channel_layer': dimension,
     }
 
     with open(certificate_file, 'w') as f:
