@@ -26,7 +26,7 @@ import gc
 #        5. add data augmentation (maria)
 #        6. better way of logging
 
-def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_rate, momentum, learning_rate_prior=0.01, momentum_prior=0.95, delta=0.025, layers=9, clamping=True, delta_test=0.01, mc_samples=1000, samples_ensemble=100, kl_penalty=1, initial_lamb=6.0, train_epochs=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, verbose_test=False, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7):
+def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_rate, momentum, learning_rate_prior=0.01, momentum_prior=0.95, delta=0.025, layers=9, clamping=True, delta_test=0.01, mc_samples=1000, samples_ensemble=100, kl_penalty=1, initial_lamb=6.0, train_epochs=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, verbose_test=False, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7, norm_type='frob'):
     """Run an experiment with PAC-Bayes inspired training objectives
 
     Parameters
@@ -356,6 +356,32 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
         ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
 
+        # compute the derived bound
+        # load lipschitz constant
+        prior_type_lip  = 'rand'
+        with open(f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type_lip}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type_lip == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}/lipschitz_results.json', 'r') as f:
+            lipschitz_results = json.load(f)
+            K = lipschitz_results['lipschitz_constant']
+
+        # feature dimension of the channel layer
+        dimension = net_channel.dimension
+
+        if channel_type.lower() == 'bec':
+            if norm_type == 'frob':
+                channel_term = K  * compute_bec_binomial(dimension, outage, device=device)
+            elif norm_type == 'spec':
+                channel_term = K * compute_bec_spec(dimension, outage, device=device)
+            else:
+                raise ValueError("norm_type must be 'frob' or 'spec'")
+        elif channel_type.lower() == 'rayleigh':
+            channel_term = K * compute_rayleigh(tx_power, noise_var, device=device)
+        else:
+            channel_term = 0.0
+
+
+
+
+
     certificate_results = {
         'risk_certificate_ce': risk_ce,
         'risk_certificate_01': risk_01,
@@ -368,7 +394,8 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'posterior_mean_01_error': post_err,
         'ensemble_loss': ens_loss,
         'ensemble_01_error': ens_err,
-        'errornet0': errornet0
+        'errornet0': errornet0,
+        'channel_term': channel_term,
     }
 
     with open(certificate_file, 'w') as f:
@@ -376,8 +403,51 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
 
 
     print(f"***Final results***") 
-    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
-    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl_final :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, channel_term, perc_train, perc_prior")
+    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl_final :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {channel_term :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+
+def compute_bec_binomial(dimension, outage, device='cpu'):
+    # 1. Setup 'r' vector (no reshaping needed for scalar)
+    r = torch.arange(1, dimension + 1, device=device, dtype=torch.float64)
+    
+    # 2. Compute Log-Probs
+    # If outage is a float, PyTorch handles it efficiently here
+    dist = torch.distributions.Binomial(total_count=dimension, probs=outage)
+    log_probs = dist.log_prob(r)
+    
+    # 3. Summation
+    # .sum() returns a scalar tensor
+    return (torch.exp(log_probs) * torch.sqrt(r)).sum().item()
+
+def compute_bec_spec(dimension, outage, device='cpu'):
+    outage = torch.as_tensor(outage, dtype=torch.float64, device=device)
+    # 1. log1p(-p) calculates ln(1 - p) accurately even for very small p
+    log_success_prob = torch.log1p(-outage)
+    
+    # 2. Scale by dimension in log space
+    log_total_success = dimension * log_success_prob
+    
+    # 3. -expm1(x) calculates -(e^x - 1) = 1 - e^x
+    # This prevents cancellation error when e^x is close to 1
+    return -torch.expm1(log_total_success).item()
+
+def compute_rayleigh(tx_power, noise_var, device='cpu'):
+    tx_power = torch.as_tensor(tx_power, dtype=torch.float64, device=device)
+    noise_var = torch.as_tensor(noise_var, dtype=torch.float64, device=device)
+
+    x = -1.0 / tx_power
+    arg = -x / 2.0
+
+    # bessel function (torch 1.9+)
+    term1 = (1 - x) * torch.special.i0(arg)
+    term2 = x * torch.special.i1(arg)
+
+    fading_term = torch.sqrt(tx_power * math.pi) / 2.0 * torch.exp(x / 2.0) * (term1 - term2)
+    noise_term = torch.sqrt(math.pi * noise_var) / 2.0
+    
+    return (fading_term + noise_term).item()
+
+
 
 def compute_empirical_risk(outputs, targets, pmin, clamping=True, per_sample=False):
     # compute negative log likelihood loss and bound it with pmin (if applicable)
