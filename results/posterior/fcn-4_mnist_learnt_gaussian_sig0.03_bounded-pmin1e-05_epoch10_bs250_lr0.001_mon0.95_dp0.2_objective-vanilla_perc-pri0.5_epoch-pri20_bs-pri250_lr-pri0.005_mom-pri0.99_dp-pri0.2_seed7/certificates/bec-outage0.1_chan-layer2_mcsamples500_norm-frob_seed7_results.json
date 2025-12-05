@@ -1,0 +1,16 @@
+{
+    "risk_certificate_ce": 0.03369217706474505,
+    "risk_certificate_01": 0.060669969180325196,
+    "kl_divergence": 24.68744468688965,
+    "train_nll_loss": 0.030325379738319846,
+    "train_01_error": 0.05619340084344952,
+    "stochastic_loss": {},
+    "stochastic_01_error": 0.027699999999999947,
+    "posterior_mean_loss": {},
+    "posterior_mean_01_error": 0.021199999999999997,
+    "ensemble_loss": {},
+    "ensemble_01_error": 0.02080000000000004,
+    "errornet0": 0.022499999999999964,
+    "channel_term": 0.06700526789924707,
+    "dimension_channel_layer": 600.0
+}
