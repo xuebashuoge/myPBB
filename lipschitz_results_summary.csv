@@ -1,0 +1,27 @@
+Model,Dataset,Prior Type,Prior Dist,Sigma,Channel Type,Channel Layer,MC Samples,Norm Type,Seed,Lipschitz Constant
+cnn-4,mnist,rand,gaussian,sig0.03,bec-outage0.1,chan-layer2,mcsamples500,norm-frob,seed7,0.004370036069303751
+cnn-4,mnist,rand,gaussian,sig0.03,bec-outage0.1,chan-layer2,mcsamples500,norm-spec,seed7,0.04550382122397423
+cnn-4,mnist,rand,gaussian,sig0.03,bec-outage0.5,chan-layer2,mcsamples500,norm-frob,seed7,0.0028321784920990467
+cnn-4,mnist,rand,gaussian,sig0.03,bec-outage0.5,chan-layer2,mcsamples500,norm-spec,seed7,0.04290483146905899
+cnn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer2,mcsamples500,norm-frob,seed7,0.01106097549200058
+cnn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer2,mcsamples500,norm-spec,seed7,0.08446924388408661
+cnn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer2,mcsamples500,norm-frob,seed7,0.014764777384698391
+cnn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer2,mcsamples500,norm-spec,seed7,0.11748018115758896
+cnn-9,cifar10,rand,gaussian,sig0.03,bec-outage0.1,chan-layer4,mcsamples500,norm-frob,seed7,0.0015182452043518424
+cnn-9,cifar10,rand,gaussian,sig0.03,bec-outage0.1,chan-layer2,mcsamples500,norm-frob,seed7,0.001323494827374816
+cnn-9,cifar10,rand,gaussian,sig0.03,bec-outage0.1,chan-layer4,mcsamples500,norm-spec,seed7,0.018739445134997368
+cnn-9,cifar10,rand,gaussian,sig0.03,bec-outage0.5,chan-layer4,mcsamples500,norm-frob,seed7,0.0012209281558170915
+cnn-9,cifar10,rand,gaussian,sig0.03,bec-outage0.5,chan-layer4,mcsamples500,norm-spec,seed7,0.01720277965068817
+cnn-9,cifar10,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer4,mcsamples500,norm-frob,seed7,0.0032911100424826145
+cnn-9,cifar10,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer4,mcsamples500,norm-spec,seed7,0.03851429373025894
+cnn-9,cifar10,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer4,mcsamples500,norm-frob,seed7,0.0061731706373393536
+cnn-9,cifar10,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer2,mcsamples500,norm-frob,seed7,0.004715333227068186
+cnn-9,cifar10,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer4,mcsamples500,norm-spec,seed7,0.07033758610486984
+fcn-4,mnist,rand,gaussian,sig0.03,bec-outage0.1,chan-layer2,mcsamples500,norm-frob,seed7,0.008666250854730606
+fcn-4,mnist,rand,gaussian,sig0.03,bec-outage0.1,chan-layer2,mcsamples500,norm-spec,seed7,0.07137268781661987
+fcn-4,mnist,rand,gaussian,sig0.03,bec-outage0.5,chan-layer2,mcsamples500,norm-frob,seed7,0.008137560449540615
+fcn-4,mnist,rand,gaussian,sig0.03,bec-outage0.5,chan-layer2,mcsamples500,norm-spec,seed7,0.0706901028752327
+fcn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer2,mcsamples500,norm-frob,seed7,0.014865528792142868
+fcn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise0.1,chan-layer2,mcsamples500,norm-spec,seed7,0.11387123912572861
+fcn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer2,mcsamples500,norm-frob,seed7,0.01664331741631031
+fcn-4,mnist,rand,gaussian,sig0.03,rayleigh-tx1.0-noise1.0,chan-layer2,mcsamples500,norm-spec,seed7,0.12923996150493622

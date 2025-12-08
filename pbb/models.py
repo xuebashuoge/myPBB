@@ -1785,7 +1785,7 @@ def testStochastic(net, test_loader, pbobj, wireless=False, clamping=True, devic
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
 
-    return cross_entropy/len(test_loader), 1-(correct/total)
+    return cross_entropy.item()/len(test_loader), 1-(correct/total)
 
     # Accumulators
     total_expected_risk = 0.0
@@ -1881,7 +1881,7 @@ def testPosteriorMean(net, test_loader, pbobj, wireless=False, clamping=True, de
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
 
-    return cross_entropy, 1-(correct/total)
+    return cross_entropy.item()/len(test_loader), 1-(correct/total)
 
 
 def testEnsemble(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda', samples=100):
@@ -1928,7 +1928,7 @@ def testEnsemble(net, test_loader, pbobj, wireless=False, clamping=True, device=
             correct += pred.eq(target.view_as(pred)).sum().item()
             total += target.size(0)
 
-    return cross_entropy/len(test_loader), 1-(correct/total)
+    return cross_entropy.item()/len(test_loader), 1-(correct/total)
 
 def computeRiskCertificates(net, toolarge, pbobj, clamping=True, device='cuda', lambda_var=None, train_loader=None, whole_train=None):
     """Function to compute risk certificates and other statistics at the end of training
