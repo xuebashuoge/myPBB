@@ -153,10 +153,12 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     posterior_folder = f'results/posterior/{model}-{layers}_{name_data}_{prior_type}_{prior_dist}_sig{sigma_prior}_{f'bounded-pmin{pmin}' if clamping else 'unbounded'}_epoch{train_epochs}_bs{batch_size}_lr{learning_rate}_mon{momentum}_dp{dropout_prob}_objective-{objective}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type == 'learnt' else ''}_seed{seed}/'
 
     certificate_folder = f'{posterior_folder}/certificates/'
+    bound_folder = f'{posterior_folder}/bounds/'
 
     os.makedirs(prior_folder, exist_ok=True)
     os.makedirs(posterior_folder, exist_ok=True)
     os.makedirs(certificate_folder, exist_ok=True)
+    os.makedirs(bound_folder, exist_ok=True)
 
 
     train_loader, test_loader, valid_loader, val_bound_one_batch, _, val_bound = data.loadbatches(train, test, loader_kargs, batch_size, prior=(prior_type == 'learnt'), perc_train=perc_train, perc_prior=perc_prior, seed=seed)
@@ -343,49 +345,104 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
     else:
         channel_specs = 'nochannel'
         wireless = False
-    certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}_results.json"
+    
+    certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
-    # load trained posterior model for certificates
-    net_channel.load_state_dict(state_dict=net.state_dict())
+    if os.path.exists(certificate_file):
+        print(f"Load certificate results from file: {certificate_file}")
 
-    with torch.no_grad():
-        # this kl might be useless if network is load from file
-        train_obj, risk_ce, risk_01, _, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
+        with open(certificate_file, 'r') as f:
+            certificate_results = json.load(f)
 
-        stch_loss, stch_err = testStochastic(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-        post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-        ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
+        risk_ce = certificate_results['risk_certificate_ce']
+        risk_01 = certificate_results['risk_certificate_01']
+        loss_ce_train = certificate_results['train_nll_loss']
+        loss_01_train = certificate_results['train_01_error']
+        stch_loss = certificate_results['stochastic_loss']
+        stch_err = certificate_results['stochastic_01_error']
+        post_loss = certificate_results['posterior_mean_loss']
+        post_err = certificate_results['posterior_mean_01_error']
+        ens_loss = certificate_results['ensemble_loss']
+        ens_err = certificate_results['ensemble_01_error']
+        dimension = certificate_results['dimension']
+    else:
+        print("Computing certificates from scratch.")
+        # load trained posterior model for certificates
+        net_channel.load_state_dict(state_dict=net.state_dict())
 
-        # compute the derived bound
-        # load lipschitz constant
-        prior_type_lip  = 'rand'
-        with open(f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type_lip}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type_lip == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}/lipschitz_results.json', 'r') as f:
-            lipschitz_results = json.load(f)
-            K = lipschitz_results['lipschitz_constant']
+        with torch.no_grad():
+            # this kl might be useless if network is load from file
+            train_obj, risk_ce, risk_01, _, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
+            stch_loss, stch_err = testStochastic(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+            post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+            ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
+            
         # feature dimension of the channel layer
         dimension = net_channel.dimension
 
-        if channel_type.lower() == 'bec':
-            if norm_type == 'frob':
-                channel_term = K  * compute_bec_binomial(dimension, outage, device=device)
-            elif norm_type == 'spec':
-                channel_term = K * compute_bec_spec(dimension, outage, device=device)
-            else:
-                raise ValueError("norm_type must be 'frob' or 'spec'")
-        elif channel_type.lower() == 'rayleigh':
-            channel_term = K * compute_rayleigh(tx_power, noise_var, device=device)
+        certificate_results = {
+            'risk_certificate_ce': risk_ce,
+            'risk_certificate_01': risk_01,
+            'train_nll_loss': loss_ce_train,
+            'train_01_error': loss_01_train,
+            'stochastic_loss': stch_loss,
+            'stochastic_01_error': stch_err,
+            'posterior_mean_loss': post_loss,
+            'posterior_mean_01_error': post_err,
+            'ensemble_loss': ens_loss,
+            'ensemble_01_error': ens_err,
+            'errornet0': errornet0,
+            'dimension': dimension
+        }
+
+        with open(certificate_file, 'w') as f:
+            json.dump(certificate_results, f, indent=4, default=vars)
+
+    # recording bounds
+    bound_file = f"{bound_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}_bounds.json"
+
+    # load lipschitz constant
+    prior_type_lip  = 'rand'
+    with open(f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type_lip}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type_lip == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}/lipschitz_results.json', 'r') as f:
+        lipschitz_results = json.load(f)
+        K = lipschitz_results['lipschitz_constant']
+
+
+    if channel_type.lower() == 'bec':
+        if norm_type == 'frob':
+            channel_term = K  * compute_bec_binomial(dimension, outage, device=device)
+        elif norm_type == 'spec':
+            channel_term = K * compute_bec_spec(dimension, outage, device=device)
         else:
-            channel_term = 0.0
+            raise ValueError("norm_type must be 'frob' or 'spec'")
+    elif channel_type.lower() == 'rayleigh':
+        channel_term = K * compute_rayleigh(tx_power, noise_var, device=device)
+    else:
+        channel_term = 0.0
 
-
-
-
-
-    certificate_results = {
+    # assume sigma-sub-Gaussian 
+    sigma_sub_G = 1.0
+    n_bound = len(val_bound.dataset)
+    n_train = len(train_loader.dataset)
+    k = math.sqrt(n_bound)
+    bound_01_rhs = risk_01 + k * sigma_sub_G**2 / (2*n_bound) + (kl_final - math.log(delta)) / k + channel_term
+    bound_ce_rhs = risk_ce + k * sigma_sub_G**2 / (2*n_bound) + (kl_final - math.log(delta)) / k + channel_term
+    bound_results = {
+        'bound_ce_lhs': risk_ce,
+        'bound_01_lhs': risk_01,
+        'bound_ce_rhs': bound_ce_rhs,
+        'bound_01_rhs': bound_01_rhs,
+        'sigma_sub_G': sigma_sub_G,
+        'n_bound': n_bound,
+        'n_train': n_train,
+        'k': k,
+        'kl_final': kl_final.item() if torch.is_tensor(kl_final) else kl_final,
+        'channel_term': channel_term,
+        'dimension': dimension,
+        'Lipschitz_constant': K,
         'risk_certificate_ce': risk_ce,
         'risk_certificate_01': risk_01,
-        'kl_divergence': kl_final,
         'train_nll_loss': loss_ce_train,
         'train_01_error': loss_01_train,
         'stochastic_loss': stch_loss,
@@ -394,13 +451,11 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'posterior_mean_01_error': post_err,
         'ensemble_loss': ens_loss,
         'ensemble_01_error': ens_err,
-        'errornet0': errornet0,
-        'channel_term': channel_term,
-        'dimension_channel_layer': dimension,
     }
 
-    with open(certificate_file, 'w') as f:
-        json.dump(certificate_results, f, indent=4, default=vars)
+    with open(bound_file, 'w') as f:
+        json.dump(bound_results, f, indent=4, default=vars)
+    
 
 
     print(f"***Final results***") 
