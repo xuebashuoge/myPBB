@@ -167,6 +167,9 @@ class PBBobj():
         if torch.is_tensor(kl):
             kl = kl.item()
 
+        if torch.is_tensor(train_obj):
+            train_obj = train_obj.item()
+
         return train_obj, kl/self.n_bound, empirical_risk_ce, empirical_risk_01, risk_ce, risk_01
 
 

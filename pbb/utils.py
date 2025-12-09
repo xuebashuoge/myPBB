@@ -358,6 +358,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         risk_01 = certificate_results['risk_certificate_01']
         loss_ce_train = certificate_results['train_nll_loss']
         loss_01_train = certificate_results['train_01_error']
+        train_obj = certificate_results['train_obj']
         stch_loss = certificate_results['stochastic_loss']
         stch_err = certificate_results['stochastic_01_error']
         post_loss = certificate_results['posterior_mean_loss']
@@ -386,6 +387,7 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
             'risk_certificate_01': risk_01,
             'train_nll_loss': loss_ce_train,
             'train_01_error': loss_01_train,
+            'train_obj': train_obj,
             'stochastic_loss': stch_loss,
             'stochastic_01_error': stch_err,
             'posterior_mean_loss': post_loss,

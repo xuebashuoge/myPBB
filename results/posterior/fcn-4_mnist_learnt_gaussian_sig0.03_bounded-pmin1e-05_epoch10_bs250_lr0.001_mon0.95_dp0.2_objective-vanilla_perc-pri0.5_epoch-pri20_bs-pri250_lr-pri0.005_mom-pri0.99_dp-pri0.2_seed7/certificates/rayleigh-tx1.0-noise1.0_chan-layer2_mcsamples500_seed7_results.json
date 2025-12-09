@@ -4,12 +4,12 @@
     "train_nll_loss": 0.030325379738319846,
     "train_01_error": 0.05619340084344952,
     "train_obj": 0.030325379738319846,
-    "stochastic_loss": 0.008919804543256759,
-    "stochastic_01_error": 0.027699999999999947,
-    "posterior_mean_loss": 0.0002192653249949217,
-    "posterior_mean_01_error": 0.021199999999999997,
-    "ensemble_loss": 0.00029665019828826187,
-    "ensemble_01_error": 0.02080000000000004,
+    "stochastic_loss": 0.4843623638153076,
+    "stochastic_01_error": 0.6415,
+    "posterior_mean_loss": 0.011643270403146744,
+    "posterior_mean_01_error": 0.6162000000000001,
+    "ensemble_loss": 0.012025909870862961,
+    "ensemble_01_error": 0.4544,
     "errornet0": 0.022499999999999964,
     "dimension": 600.0
 }
