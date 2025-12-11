@@ -6,6 +6,47 @@ from tqdm import tqdm, trange
 import torch.nn.functional as F
 
 
+def compute_bec_binomial(dimension, outage, device='cpu'):
+    # 1. Setup 'r' vector (no reshaping needed for scalar)
+    r = torch.arange(1, dimension + 1, device=device, dtype=torch.float64)
+    
+    # 2. Compute Log-Probs
+    # If outage is a float, PyTorch handles it efficiently here
+    dist = torch.distributions.Binomial(total_count=dimension, probs=outage)
+    log_probs = dist.log_prob(r)
+    
+    # 3. Summation
+    # .sum() returns a scalar tensor
+    return (torch.exp(log_probs) * torch.sqrt(r)).sum().item()
+
+def compute_bec_spec(dimension, outage, device='cpu'):
+    outage = torch.as_tensor(outage, dtype=torch.float64, device=device)
+    # 1. log1p(-p) calculates ln(1 - p) accurately even for very small p
+    log_success_prob = torch.log1p(-outage)
+    
+    # 2. Scale by dimension in log space
+    log_total_success = dimension * log_success_prob
+    
+    # 3. -expm1(x) calculates -(e^x - 1) = 1 - e^x
+    # This prevents cancellation error when e^x is close to 1
+    return -torch.expm1(log_total_success).item()
+
+def compute_rayleigh(tx_power, noise_var, device='cpu'):
+    tx_power = torch.as_tensor(tx_power, dtype=torch.float64, device=device)
+    noise_var = torch.as_tensor(noise_var, dtype=torch.float64, device=device)
+
+    x = -1.0 / tx_power
+    arg = -x / 2.0
+
+    # bessel function (torch 1.9+)
+    term1 = (1 - x) * torch.special.i0(arg)
+    term2 = x * torch.special.i1(arg)
+
+    fading_term = torch.sqrt(tx_power * math.pi) / 2.0 * torch.exp(x / 2.0) * (term1 - term2)
+    noise_term = torch.sqrt(math.pi * noise_var) / 2.0
+    
+    return (fading_term + noise_term).item()
+
 class PBBobj():
     """Class including all functionalities needed to train a NN with a PAC-Bayes inspired 
     training objective and evaluate the risk certificate at the end of training. 
@@ -41,7 +82,7 @@ class PBBobj():
 
     """
     def __init__(self, objective='fquad', pmin=1e-4, classes=10, delta=0.025,
-    delta_test=0.01, mc_samples=1000, kl_penalty=1, device='cuda', n_posterior=30000, n_bound=30000):
+    delta_test=0.01, mc_samples=1000, kl_penalty=1, device='cuda', n_posterior=30000, n_bound=30000, K=1.0, channel_type='bec', outage=0.5, tx_power=1.0, noise_var=1.0, norm_type='frob', dimension=1, channel_penalty=1.0):
         super().__init__()
         self.objective = objective
         self.pmin = pmin
@@ -53,6 +94,21 @@ class PBBobj():
         self.kl_penalty = kl_penalty
         self.n_posterior = n_posterior
         self.n_bound = n_bound
+        self.K = K
+        self.channel_penalty = channel_penalty
+
+        if channel_type.lower() == 'bec':
+            if norm_type == 'frob':
+                self.channel_term = K  * compute_bec_binomial(dimension, outage, device=device)
+            elif norm_type == 'spec':
+                self.channel_term = K * compute_bec_spec(dimension, outage, device=device)
+            else:
+                raise ValueError("norm_type must be 'frob' or 'spec'")
+        elif channel_type.lower() == 'rayleigh':
+            self.channel_term = K * compute_rayleigh(tx_power, noise_var, device=device)
+        else:
+            self.channel_term = 0.0
+
 
 
     def compute_empirical_risk(self, outputs, targets, bounded=True):
@@ -101,6 +157,10 @@ class PBBobj():
                 self.kl_penalty * (kl/train_size)
         elif self.objective == 'vanilla':
             train_obj = empirical_risk
+        elif self.objective == 'channel':
+            kl = kl * self.kl_penalty
+            kl_ratio = torch.div(kl + np.log(1.0/self.delta), np.sqrt(train_size))
+            train_obj = empirical_risk + self.channel_penalty * self.channel_term + kl_ratio
         else:
             raise RuntimeError(f'Wrong objective {self.objective}')
         return train_obj

@@ -1787,6 +1787,9 @@ def testStochastic(net, test_loader, pbobj, wireless=False, clamping=True, devic
 
     return cross_entropy.item()/len(test_loader), 1-(correct/total)
 
+def testStochasticMC(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda', mc_samples=100):
+
+    net.eval()
     # Accumulators
     total_expected_risk = 0.0
     total_expected_errors = 0.0
@@ -1841,7 +1844,7 @@ def testStochastic(net, test_loader, pbobj, wireless=False, clamping=True, devic
     # Average Error Rate = Total Expected Errors / Total Samples
     final_avg_error = total_expected_errors / total_samples
 
-    return final_avg_risk, final_avg_error
+    return final_avg_risk.item(), final_avg_error
 
 
 def testPosteriorMean(net, test_loader, pbobj, wireless=False, clamping=True, device='cuda'):
@@ -1964,7 +1967,7 @@ def computeRiskCertificates(net, toolarge, pbobj, clamping=True, device='cuda', 
                 net, lambda_var=lambda_var, clamping=clamping, data_loader=train_loader)
         else:
             # a bit hacky, we load the whole dataset to compute the bound
-            for data, target in whole_train:
+            for data, target in tqdm(whole_train):
                 data, target = data.to(device), target.to(device)
                 train_obj, kl, loss_ce_train, err_01_train, risk_ce, risk_01 = pbobj.compute_final_stats_risk(
                     net, lambda_var=lambda_var, clamping=clamping, input=data, target=target)

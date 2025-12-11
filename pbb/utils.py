@@ -9,8 +9,8 @@ import torch.distributions as td
 from torchvision import datasets, transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm, trange
-from pbb.models import NNet4l, CNNet4l, ProbNNet4l, ProbCNNet4l, ProbCNNet9l, CNNet9l, CNNet13l, ProbCNNet13l, ProbCNNet15l, CNNet15l, trainNNet, testNNet, Lambda_var, trainPNNet, computeRiskCertificates, testPosteriorMean, testStochastic, testEnsemble, select_channel_network, select_network, select_prior_network, ProbConv2d, ProbLinear
-from pbb.bounds import PBBobj
+from pbb.models import NNet4l, CNNet4l, ProbNNet4l, ProbCNNet4l, ProbCNNet9l, CNNet9l, CNNet13l, ProbCNNet13l, ProbCNNet15l, CNNet15l, trainNNet, testNNet, Lambda_var, trainPNNet, computeRiskCertificates, testPosteriorMean, testStochastic, testStochasticMC, testEnsemble, select_channel_network, select_network, select_prior_network, ProbConv2d, ProbLinear
+from pbb.bounds import PBBobj, compute_bec_binomial, compute_bec_spec, compute_rayleigh
 from pbb import data
 import matplotlib
 matplotlib.use('Agg')
@@ -26,7 +26,7 @@ import gc
 #        5. add data augmentation (maria)
 #        6. better way of logging
 
-def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_rate, momentum, learning_rate_prior=0.01, momentum_prior=0.95, delta=0.025, layers=9, clamping=True, delta_test=0.01, mc_samples=1000, samples_ensemble=100, kl_penalty=1, initial_lamb=6.0, train_epochs=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, verbose_test=False, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7, norm_type='frob'):
+def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_rate, momentum, learning_rate_prior=0.01, momentum_prior=0.95, delta=0.025, layers=9, clamping=True, delta_test=0.01, mc_samples=1000, samples_ensemble=100, kl_penalty=1, initial_lamb=6.0, train_epochs=100, prior_dist='gaussian', verbose=False, device='cuda', prior_epochs=20, dropout_prob=0.2, perc_train=1.0, verbose_test=False, perc_prior=0.2, batch_size=250, channel_type='nochannel', outage=0.1, noise_var=1.0, tx_power=1.0, l_0=2, seed=7, norm_type='frob', certificate_name='compare_mc_wired'):
     """Run an experiment with PAC-Bayes inspired training objectives
 
     Parameters
@@ -248,9 +248,31 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         torch.mps.empty_cache()
     gc.collect()
 
+    # load lipschitz constant
+    if channel_type.lower() == 'rayleigh':
+        channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
+        wireless = True
+    elif channel_type.lower() == 'bec':
+        channel_specs = f'bec-outage{outage}'
+        wireless = True
+    else:
+        channel_specs = 'nochannel'
+        wireless = False
+    
+    prior_type_lip  = 'rand'
+    with open(f'results/lipschitz/{model}-{layers}_{name_data}_{prior_type_lip}_{prior_dist}_sig{sigma_prior}{f'_perc-pri{perc_prior}_epoch-pri{prior_epochs}_bs-pri{batch_size}_lr-pri{learning_rate_prior}_mom-pri{momentum_prior}_dp-pri{dropout_prob}' if prior_type_lip == 'learnt' else ''}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_norm-{norm_type}_seed{seed}/lipschitz_results.json', 'r') as f:
+        lipschitz_results = json.load(f)
+        K = lipschitz_results['lipschitz_constant']
+
+    # use a test sample to get the dimension
+    dataiter = iter(train_loader)
+    data_sample, _ = next(dataiter)
+    _ = net_channel(data_sample.to(device), sample=False, wireless=True)
+    dimension = net_channel.dimension
+
     # import ipdb
     # ipdb.set_trace()
-    bound = PBBobj(objective, pmin, classes, delta, delta_test, mc_samples, kl_penalty, device, n_posterior=posterior_n_size, n_bound=bound_n_size)
+    bound = PBBobj(objective, pmin, classes, delta, delta_test, mc_samples, kl_penalty, device, n_posterior=posterior_n_size, n_bound=bound_n_size, K=K, channel_type=channel_type, outage=outage, tx_power=tx_power, noise_var=noise_var, norm_type=norm_type, dimension=dimension)
 
     if objective == 'flamb':
         lambda_var = Lambda_var(initial_lamb, train_size).to(device)
@@ -275,6 +297,8 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         loss_tr = []
         err_tr = []
         kl_tr = []
+        loss_val = []
+        err_val = []
 
         for epoch in trange(train_epochs):
             avgbound, avgkl, avgloss, avgerr = trainPNNet(net, optimizer, bound, epoch, train_loader, clamping, lambda_var, optimizer_lambda, verbose)
@@ -283,18 +307,20 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
             err_tr.append(avgerr.item() if torch.is_tensor(avgerr) else avgerr)
             kl_tr.append(avgkl.detach().item() if torch.is_tensor(avgkl) else avgkl)
 
-            if verbose_test and ((epoch+1) % 5 == 0):
-                with torch.no_grad():
-                    train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge,
-                    bound, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
+            # if verbose_test and ((epoch+1) % 5 == 0):
+            with torch.no_grad():
+                # train_obj, risk_ce, risk_01, kl, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
-                    stch_loss, stch_err = testStochastic(net, test_loader, bound, device=device)
-                    post_loss, post_err = testPosteriorMean(net, test_loader, bound, device=device)
-                    ens_loss, ens_err = testEnsemble(net, test_loader, bound, device=device, samples=samples_ensemble)
+                stch_loss, stch_err = testStochastic(net, test_loader, bound, device=device)
+                # post_loss, post_err = testPosteriorMean(net, test_loader, bound, device=device)
+                # ens_loss, ens_err = testEnsemble(net, test_loader, bound, device=device, samples=samples_ensemble)
 
-                    print(f"***Checkpoint results***")         
-                    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
-                    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+                loss_val.append(stch_loss.item() if torch.is_tensor(stch_loss) else stch_loss)
+                err_val.append(stch_err.item() if torch.is_tensor(stch_err) else stch_err)
+
+                # print(f"***Checkpoint results***")         
+                # print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, perc_train, perc_prior")
+                # print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
             
         # record final kl
         kl_final = net.compute_kl()
@@ -336,17 +362,9 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
 
 
     # certificates files
-    if channel_type.lower() == 'rayleigh':
-        channel_specs = f'rayleigh-tx{tx_power}-noise{noise_var}'
-        wireless = True
-    elif channel_type.lower() == 'bec':
-        channel_specs = f'bec-outage{outage}'
-        wireless = True
-    else:
-        channel_specs = 'nochannel'
-        wireless = False
+
     
-    certificate_file = f"{certificate_folder}/{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
+    certificate_file = f"{certificate_folder}/{certificate_name}_{channel_specs}_chan-layer{l_0}_mcsamples{mc_samples}_seed{seed}_results.json"
 
     if os.path.exists(certificate_file):
         print(f"Load certificate results from file: {certificate_file}")
@@ -361,10 +379,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         train_obj = certificate_results['train_obj']
         stch_loss = certificate_results['stochastic_loss']
         stch_err = certificate_results['stochastic_01_error']
-        post_loss = certificate_results['posterior_mean_loss']
-        post_err = certificate_results['posterior_mean_01_error']
-        ens_loss = certificate_results['ensemble_loss']
-        ens_err = certificate_results['ensemble_01_error']
+        stch_loss_mc = certificate_results['stochastic_loss_mc']
+        stch_err_mc = certificate_results['stochastic_01_error_mc']
+        stch_loss_wired = certificate_results['stochastic_loss_wired']
+        stch_err_wired = certificate_results['stochastic_01_error_wired']
         dimension = certificate_results['dimension']
     else:
         print("Computing certificates from scratch.")
@@ -376,8 +394,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
             train_obj, risk_ce, risk_01, _, loss_ce_train, loss_01_train = computeRiskCertificates(net, toolarge, bound, clamping, device=device, lambda_var=lambda_var, train_loader=val_bound, whole_train=val_bound_one_batch)
 
             stch_loss, stch_err = testStochastic(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-            post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
-            ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
+            stch_loss_mc, stch_err_mc = testStochasticMC(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, mc_samples=mc_samples)
+            stch_loss_wired, stch_err_wired = testStochastic(net_channel, test_loader, bound, wireless=False, clamping=clamping, device=device)
+            # post_loss, post_err = testPosteriorMean(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device)
+            # ens_loss, ens_err = testEnsemble(net_channel, test_loader, bound, wireless=wireless, clamping=clamping, device=device, samples=samples_ensemble)
             
         # feature dimension of the channel layer
         dimension = net_channel.dimension
@@ -390,10 +410,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
             'train_obj': train_obj,
             'stochastic_loss': stch_loss,
             'stochastic_01_error': stch_err,
-            'posterior_mean_loss': post_loss,
-            'posterior_mean_01_error': post_err,
-            'ensemble_loss': ens_loss,
-            'ensemble_01_error': ens_err,
+            'stochastic_loss_mc': stch_loss_mc,
+            'stochastic_01_error_mc': stch_err_mc,
+            'stochastic_loss_wired': stch_loss_wired,
+            'stochastic_01_error_wired': stch_err_wired,
             'errornet0': errornet0,
             'dimension': dimension
         }
@@ -449,10 +469,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
         'train_01_error': loss_01_train,
         'stochastic_loss': stch_loss,
         'stochastic_01_error': stch_err,
-        'posterior_mean_loss': post_loss,
-        'posterior_mean_01_error': post_err,
-        'ensemble_loss': ens_loss,
-        'ensemble_01_error': ens_err,
+        'stochastic_loss_mc': stch_loss_mc,
+        'stochastic_01_error_mc': stch_err_mc,
+        'stochastic_loss_wired': stch_loss_wired,
+        'stochastic_01_error_wired': stch_err_wired,
     }
 
     with open(bound_file, 'w') as f:
@@ -461,49 +481,10 @@ def runexp(name_data, objective, prior_type, model, sigma_prior, pmin, learning_
 
 
     print(f"***Final results***") 
-    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Post mean loss, Post mean 01 error, Ens loss, Ens 01 error, 01 error prior net, channel_term, perc_train, perc_prior")
-    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl_final :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {post_loss :.5f}, {post_err :.5f}, {ens_loss :.5f}, {ens_err :.5f}, {errornet0 :.5f}, {channel_term :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
+    print(f"Objective, Dataset, Sigma, pmin, LR, momentum, LR_prior, momentum_prior, kl_penalty, dropout, Obj_train, Risk_CE, Risk_01, KL, Train NLL loss, Train 01 error, Stch loss, Stch 01 error, Stch loss MC, Stch 01 error MC, Stch loss wired, Stch 01 error wired, 01 error prior net, channel_term, perc_train, perc_prior")
+    print(f"{objective}, {name_data}, {sigma_prior :.5f}, {pmin :.5f}, {learning_rate :.5f}, {momentum :.5f}, {learning_rate_prior :.5f}, {momentum_prior :.5f}, {kl_penalty : .5f}, {dropout_prob :.5f}, {train_obj :.5f}, {risk_ce :.5f}, {risk_01 :.5f}, {kl_final :.5f}, {loss_ce_train :.5f}, {loss_01_train :.5f}, {stch_loss :.5f}, {stch_err :.5f}, {stch_loss_mc :.5f}, {stch_err_mc :.5f}, {stch_loss_wired :.5f}, {stch_err_wired :.5f}, {errornet0 :.5f}, {channel_term :.5f}, {perc_train :.5f}, {perc_prior :.5f}")
 
-def compute_bec_binomial(dimension, outage, device='cpu'):
-    # 1. Setup 'r' vector (no reshaping needed for scalar)
-    r = torch.arange(1, dimension + 1, device=device, dtype=torch.float64)
-    
-    # 2. Compute Log-Probs
-    # If outage is a float, PyTorch handles it efficiently here
-    dist = torch.distributions.Binomial(total_count=dimension, probs=outage)
-    log_probs = dist.log_prob(r)
-    
-    # 3. Summation
-    # .sum() returns a scalar tensor
-    return (torch.exp(log_probs) * torch.sqrt(r)).sum().item()
 
-def compute_bec_spec(dimension, outage, device='cpu'):
-    outage = torch.as_tensor(outage, dtype=torch.float64, device=device)
-    # 1. log1p(-p) calculates ln(1 - p) accurately even for very small p
-    log_success_prob = torch.log1p(-outage)
-    
-    # 2. Scale by dimension in log space
-    log_total_success = dimension * log_success_prob
-    
-    # 3. -expm1(x) calculates -(e^x - 1) = 1 - e^x
-    # This prevents cancellation error when e^x is close to 1
-    return -torch.expm1(log_total_success).item()
-
-def compute_rayleigh(tx_power, noise_var, device='cpu'):
-    tx_power = torch.as_tensor(tx_power, dtype=torch.float64, device=device)
-    noise_var = torch.as_tensor(noise_var, dtype=torch.float64, device=device)
-
-    x = -1.0 / tx_power
-    arg = -x / 2.0
-
-    # bessel function (torch 1.9+)
-    term1 = (1 - x) * torch.special.i0(arg)
-    term2 = x * torch.special.i1(arg)
-
-    fading_term = torch.sqrt(tx_power * math.pi) / 2.0 * torch.exp(x / 2.0) * (term1 - term2)
-    noise_term = torch.sqrt(math.pi * noise_var) / 2.0
-    
-    return (fading_term + noise_term).item()
 
 
 
