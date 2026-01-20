@@ -1,0 +1,11 @@
+numpy
+torch
+torchvision
+tqdm
+matplotlib
+scipy
+pandas
+seaborn
+openpyxl
+tabulate
+xlsxwriter
